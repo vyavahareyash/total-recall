@@ -638,6 +638,28 @@ def segment_into_temporal_burst_episodes(
     return episodes
 
 
+def fetch_episodes_by_date_range(
+    episodes: list[ConversationalFlowEpisode],
+    start_date: str,
+    end_date: str,
+) -> list[ConversationalFlowEpisode]:
+    """Filter conversational episodes strictly within a specified date duration."""
+    start_dt = datetime.fromisoformat(start_date).replace(tzinfo=UTC)
+    end_dt = datetime.fromisoformat(end_date).replace(tzinfo=UTC)
+
+    matching = []
+    for ep in episodes:
+        ep_start = datetime.strptime(ep.start_time, "%Y-%m-%d %H:%M:%S UTC").replace(
+            tzinfo=UTC
+        )
+        ep_end = datetime.strptime(ep.end_time, "%Y-%m-%d %H:%M:%S UTC").replace(
+            tzinfo=UTC
+        )
+        if ep_start <= end_dt and ep_end >= start_dt:
+            matching.append(ep)
+    return matching
+
+
 # ==============================================================================
 # Layer 5: SQLite FTS5 + Vector Hybrid Index & Reciprocal Rank Fusion (RRF)
 # ==============================================================================
@@ -1090,6 +1112,29 @@ def run_spike_verification() -> bool:
         assert verification["is_valid"]
         assert verification["total_citations"] == 5
         assert len(verification["hallucinated_citations"]) == 0
+
+        # ----------------------------------------------------------------------
+        # Test 7: Date-Range Episode Windowing
+        # ----------------------------------------------------------------------
+        print("\n[Stage 7] Date-Range Duration Filtering & Windowing")
+        # Query morning window covering only Episode 1 (09:00 to 09:10 UTC)
+        episodes_morning = fetch_episodes_by_date_range(
+            episodes, "2026-10-22 09:00:00", "2026-10-22 09:10:00"
+        )
+        print(
+            f"  Window 09:00-09:10 matched {len(episodes_morning)} episode: {[e.episode_id for e in episodes_morning]}"
+        )
+        assert len(episodes_morning) == 1
+        assert episodes_morning[0].episode_id == "120363041234567890@g.us_ep_1"
+
+        # Query entire day window covering both episodes
+        episodes_full_day = fetch_episodes_by_date_range(
+            episodes, "2026-10-22 00:00:00", "2026-10-22 23:59:59"
+        )
+        print(
+            f"  Full day window matched {len(episodes_full_day)} episodes: {[e.episode_id for e in episodes_full_day]}"
+        )
+        assert len(episodes_full_day) == 2
 
     print("\n" + "=" * 70)
     print("ALL 6 SPIKE ACCEPTANCE CRITERIA VERIFIED SUCCESSFULLY (100% PASS)")
