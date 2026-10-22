@@ -8,7 +8,9 @@ dependencies = []
 
 [dependency-groups]
 dev = [
+    "nbstripout>=0.9.1",
     "pre-commit>=4.7.0",
+    "pytest>=9.1.1",
     "ruff>=0.17.1",
 ]
 
@@ -27,7 +29,9 @@ select = [
     "UP",   # pyupgrade
     "SIM",  # flake8-simplify
 ]
-ignore = []
+ignore = [
+    "E501",  # line length handled by ruff format
+]
 
 [tool.ruff.lint.isort]
 known-first-party = ["total_recall"]
@@ -35,3 +39,7 @@ known-first-party = ["total_recall"]
 [tool.ruff.format]
 quote-style = "double"
 indent-style = "space"
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]

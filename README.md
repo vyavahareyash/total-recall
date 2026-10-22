@@ -35,10 +35,12 @@ The system is engineered around four deep modules with minimal interfaces and hi
 
 * **[CONTEXT.md](CONTEXT.md):** Problem space, macOS Catalyst constraints, user personas, and project boundaries.
 * **[GLOSSARY.md](GLOSSARY.md):** Canonical domain language, strict definitions, and `_Avoid_` rules.
+* **[docs/concepts.md](docs/concepts.md):** Deep explanation of core concepts: episodes, reply DAGs, Apple Epoch, sentinels, RRF, and epistemic neutrality.
 * **[docs/architecture.md](docs/architecture.md):** Detailed macOS architecture, deep modules, seams, SQL RRF formulas, and concurrency mechanics.
 * **[docs/spec.md](docs/spec.md):** Comprehensive product specification, 25 user stories, implementation decisions, and test plan.
 * **[docs/adr/0001-macos-app-group-sqlite-ingestion.md](docs/adr/0001-macos-app-group-sqlite-ingestion.md):** Architecture Decision Record establishing macOS Catalyst SQLite snapshot ingestion.
 * **[docs/research/research.md](docs/research/research.md):** Upstream forensic, architectural, benchmark, and protocol analysis from the research paper.
+
 
 ---
 
