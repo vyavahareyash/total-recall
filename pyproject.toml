@@ -6,6 +6,9 @@ readme = "README.md"
 requires-python = ">=3.13"
 dependencies = []
 
+[project.scripts]
+total-recall = "total_recall.cli:main"
+
 [dependency-groups]
 dev = [
     "nbstripout>=0.9.1",
