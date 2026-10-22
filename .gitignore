@@ -1,0 +1,48 @@
+# macOS System
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+.Spotlight-V100
+.Trashes
+
+# Local SQLite databases & sidecars
+*.db
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+total_recall.db*
+
+# Local auth tokens & secrets
+.bridge-token
+*.token
+*.key
+.env
+.env.*
+.env.local
+
+# Local models and cache
+models/
+cache/
+*.bin
+*.onnx
+
+# Build and binary artifacts
+dist/
+build/
+bin/
+out/
+target/
+
+# Package dependencies
+node_modules/
+vendor/
+.venv/
+venv/
+
+# Scratch & logs
+.scratch/
+*.log
+tmp/
