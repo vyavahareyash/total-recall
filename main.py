@@ -1,10 +1,6 @@
-import os
 import sys
 
-
-def main():
-    print("Hello from total-recall!", sys.platform, os.name)
-
+from total_recall.cli import main
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
