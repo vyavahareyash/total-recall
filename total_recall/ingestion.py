@@ -4,7 +4,13 @@ import sqlite3
 from datetime import UTC, datetime
 from pathlib import Path
 
-from total_recall.types import IngestionStats, NormalizedMessage
+from total_recall.chunking import chunk_into_episodes
+from total_recall.types import (
+    ConversationalFlowEpisode,
+    IngestionStats,
+    NormalizedMessage,
+)
+from total_recall.vault import DiscoveredChat, IngestionReport, VaultConfig
 
 # Apple Epoch offset: seconds between 1970-01-01 and 2001-01-01 UTC
 APPLE_EPOCH_OFFSET = 978_307_200
@@ -93,12 +99,97 @@ class IngestionEngine:
             pass
         return group_members
 
+    def discover_chats(
+        self, vault_config: VaultConfig | None = None
+    ) -> IngestionReport:
+        """Scan ChatStorage to inventory discovered chats and evaluate vault opt-in status."""
+        address_book = self._load_address_book()
+        con = self.open_lock_free_connection(self.chat_storage_path)
+        con.row_factory = sqlite3.Row
+        cur = con.cursor()
+
+        push_names = self._load_push_names(con)
+
+        # Message count per session
+        msg_counts: dict[int, int] = {}
+        try:
+            cur.execute(
+                "SELECT ZCHATSESSION, COUNT(*) AS cnt FROM ZWAMESSAGE "
+                "WHERE ZTEXT IS NOT NULL AND length(ZTEXT) > 0 "
+                "GROUP BY ZCHATSESSION"
+            )
+            for row in cur.fetchall():
+                msg_counts[int(row["ZCHATSESSION"])] = int(row["cnt"])
+        except sqlite3.Error:
+            pass
+
+        cur.execute(
+            "SELECT Z_PK, ZCONTACTJID, ZPARTNERNAME FROM ZWACHATSESSION ORDER BY Z_PK ASC"
+        )
+        sessions = cur.fetchall()
+        con.close()
+
+        discovered: list[DiscoveredChat] = []
+        direct_count = 0
+        group_count = 0
+        total_msgs = 0
+        approved_count = 0
+
+        for row in sessions:
+            pk = int(row["Z_PK"])
+            jid = str(row["ZCONTACTJID"])
+            partner = str(row["ZPARTNERNAME"]) if row["ZPARTNERNAME"] else ""
+            is_group = jid.endswith("@g.us")
+            count = msg_counts.get(pk, 0)
+            total_msgs += count
+
+            if is_group:
+                group_count += 1
+                name = partner or jid
+            else:
+                direct_count += 1
+                name = address_book.get(jid) or partner or push_names.get(jid) or jid
+
+            is_appr = vault_config.is_chat_approved(jid) if vault_config else False
+            if is_appr:
+                approved_count += 1
+
+            workspaces = (
+                tuple(vault_config.get_workspaces_for_chat(jid)) if vault_config else ()
+            )
+
+            discovered.append(
+                DiscoveredChat(
+                    chat_session_id=pk,
+                    chat_jid=jid,
+                    chat_name=name,
+                    is_group=is_group,
+                    message_count=count,
+                    is_approved=is_appr,
+                    workspaces=workspaces,
+                )
+            )
+
+        active_ws = (
+            tuple(sorted(vault_config.active_workspaces)) if vault_config else ()
+        )
+        return IngestionReport(
+            total_chats_discovered=len(discovered),
+            direct_chats_discovered=direct_count,
+            group_chats_discovered=group_count,
+            total_messages_discovered=total_msgs,
+            approved_chats_count=approved_count,
+            active_workspaces=active_ws,
+            chats=tuple(discovered),
+        )
+
     def extract_messages(
         self,
         include_direct: bool = True,
         include_groups: bool = True,
+        vault_config: VaultConfig | None = None,
     ) -> tuple[list[NormalizedMessage], IngestionStats]:
-        """Extract and normalize chat messages with lock-free snapshot reads."""
+        """Extract and normalize chat messages with lock-free snapshot reads and vault filtering."""
         if not include_direct and not include_groups:
             return [], IngestionStats(
                 total_sessions_scanned=0,
@@ -122,12 +213,12 @@ class IngestionEngine:
         cur.execute(
             "SELECT COUNT(*) AS direct_count FROM ZWACHATSESSION WHERE ZCONTACTJID NOT LIKE '%@g.us'"
         )
-        direct_sessions = int(cur.fetchone()["direct_count"])
+        direct_sessions_total = int(cur.fetchone()["direct_count"])
 
         cur.execute(
             "SELECT COUNT(*) AS group_count FROM ZWACHATSESSION WHERE ZCONTACTJID LIKE '%@g.us'"
         )
-        group_sessions = int(cur.fetchone()["group_count"])
+        group_sessions_total = int(cur.fetchone()["group_count"])
 
         # Construct WHERE clause based on session inclusion
         where_conditions = ["m.ZTEXT IS NOT NULL", "length(m.ZTEXT) > 0"]
@@ -160,9 +251,17 @@ class IngestionEngine:
         cur.execute(query)
 
         messages: list[NormalizedMessage] = []
+        ingested_session_jids: set[str] = set()
+
         for row in cur.fetchall():
-            is_from_me = bool(row["ZISFROMME"])
             chat_jid = str(row["ZCONTACTJID"])
+
+            # Opt-In Chat Vault filter: strictly exclude unapproved chats
+            if vault_config is not None and not vault_config.is_chat_approved(chat_jid):
+                continue
+
+            ingested_session_jids.add(chat_jid)
+            is_from_me = bool(row["ZISFROMME"])
             is_group = chat_jid.endswith("@g.us")
             partner_name = str(row["ZPARTNERNAME"]) if row["ZPARTNERNAME"] else ""
 
@@ -226,22 +325,75 @@ class IngestionEngine:
             )
 
         con.close()
+
+        # Calculate actual sessions ingested
+        if vault_config is not None:
+            direct_ingested = sum(
+                1 for jid in ingested_session_jids if not jid.endswith("@g.us")
+            )
+            group_ingested = sum(
+                1 for jid in ingested_session_jids if jid.endswith("@g.us")
+            )
+        else:
+            direct_ingested = direct_sessions_total if include_direct else 0
+            group_ingested = group_sessions_total if include_groups else 0
+
         stats = IngestionStats(
             total_sessions_scanned=total_sessions,
-            direct_sessions_ingested=direct_sessions if include_direct else 0,
-            group_sessions_ingested=group_sessions if include_groups else 0,
+            direct_sessions_ingested=direct_ingested,
+            group_sessions_ingested=group_ingested,
             messages_ingested=len(messages),
         )
         return messages, stats
 
     def extract_1to1_messages(
         self,
+        vault_config: VaultConfig | None = None,
     ) -> tuple[list[NormalizedMessage], IngestionStats]:
         """Extract and normalize 1:1 chat messages (backwards-compatible)."""
-        return self.extract_messages(include_direct=True, include_groups=False)
+        return self.extract_messages(
+            include_direct=True, include_groups=False, vault_config=vault_config
+        )
 
     def extract_group_messages(
         self,
+        vault_config: VaultConfig | None = None,
     ) -> tuple[list[NormalizedMessage], IngestionStats]:
         """Extract and normalize group chat messages."""
-        return self.extract_messages(include_direct=False, include_groups=True)
+        return self.extract_messages(
+            include_direct=False, include_groups=True, vault_config=vault_config
+        )
+
+    def sync(
+        self,
+        vault_config: VaultConfig,
+        chunk_episodes: bool = True,
+    ) -> tuple[list[ConversationalFlowEpisode], IngestionReport]:
+        """Synchronize WhatsApp store using Opt-In Chat Vault perimeter and return episodes & report."""
+        report = self.discover_chats(vault_config=vault_config)
+        messages, _ = self.extract_messages(
+            include_direct=True, include_groups=True, vault_config=vault_config
+        )
+
+        chat_names = {c.chat_jid: c.chat_name for c in report.chats}
+        episodes = (
+            chunk_into_episodes(messages, chat_names=chat_names)
+            if chunk_episodes
+            else []
+        )
+
+        ingested_jids = {m.chat_jid for m in messages}
+        final_report = IngestionReport(
+            total_chats_discovered=report.total_chats_discovered,
+            direct_chats_discovered=report.direct_chats_discovered,
+            group_chats_discovered=report.group_chats_discovered,
+            total_messages_discovered=report.total_messages_discovered,
+            approved_chats_count=report.approved_chats_count,
+            active_workspaces=report.active_workspaces,
+            chats=report.chats,
+            ingested_chats_count=len(ingested_jids),
+            ingested_messages_count=len(messages),
+            episodes_generated_count=len(episodes),
+        )
+
+        return episodes, final_report
