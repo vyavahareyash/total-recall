@@ -30,8 +30,40 @@ class SearchResult:
 
 
 @dataclass(frozen=True)
+class CrossBurstQuoteContext:
+    child_pk: int
+    parent_pk: int
+    parent_sender_name: str
+    parent_text: str
+    parent_iso_date: str
+
+
+@dataclass(frozen=True)
+class ConversationalFlowEpisode:
+    episode_id: str
+    chat_jid: str
+    chat_name: str
+    start_timestamp: float
+    end_timestamp: float
+    start_iso: str
+    end_iso: str
+    participants: tuple[str, ...]
+    messages: tuple[NormalizedMessage, ...]
+    cross_burst_quotes: tuple[CrossBurstQuoteContext, ...]
+    header: str
+    content: str
+
+
+@dataclass(frozen=True)
+class ScoredEpisode:
+    episode: ConversationalFlowEpisode
+    bm25_score: float
+
+
+@dataclass(frozen=True)
 class IngestionStats:
     total_sessions_scanned: int
     direct_sessions_ingested: int
     group_sessions_ingested: int = 0
     messages_ingested: int = 0
+    episodes_generated: int = 0
