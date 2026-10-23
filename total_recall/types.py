@@ -96,3 +96,45 @@ class IngestionStats:
     episodes_generated: int = 0
     revocations_detected: int = 0
     expired_purged: int = 0
+
+
+@dataclass(frozen=True)
+class Citation:
+    chat_name: str
+    iso_date: str
+    sender_name: str
+    message_pk: int
+    raw: str = ""
+
+    def __str__(self) -> str:
+        return (
+            self.raw
+            or f"[{self.chat_name} | {self.iso_date} | {self.sender_name} | {self.message_pk}]"
+        )
+
+
+@dataclass(frozen=True)
+class VerifiedClaim:
+    text: str
+    citation: Citation | None
+    entailed: bool
+    entailment_score: float = 1.0
+    discard_reason: str | None = None
+
+
+@dataclass(frozen=True)
+class PerspectiveSplit:
+    topic: str
+    perspectives: tuple[tuple[str, tuple[VerifiedClaim, ...]], ...]
+
+
+@dataclass(frozen=True)
+class VerifiedSummary:
+    chat_jid: str
+    title: str
+    claims: tuple[VerifiedClaim, ...]
+    discarded_claims: tuple[VerifiedClaim, ...]
+    splits: tuple[PerspectiveSplit, ...]
+    summary_text: str
+    episodes_analyzed: int
+    messages_analyzed: int
