@@ -10,6 +10,11 @@ from total_recall.discovery import discover_whatsapp_containers
 from total_recall.embeddings import get_embedding_provider
 from total_recall.ingestion import IngestionEngine
 from total_recall.search import SearchIndex
+from total_recall.summarizer import (
+    DeterministicMockLLMAdapter,
+    OllamaLLMAdapter,
+    Summarizer,
+)
 from total_recall.vault import VaultConfig
 
 DEFAULT_DB_PATH = Path("total_recall.db")
@@ -330,6 +335,72 @@ def build_parser() -> argparse.ArgumentParser:
         choices=["auto", "ollama", "mock"],
         default="auto",
         help="Embedding provider for recomputing parent episode vectors (default: auto)",
+    )
+
+    # 7. Summarize subcommand
+    summarize_parser = subparsers.add_parser(
+        "summarize",
+        help="Generate factual court-reporter summaries with prefix NLI verification",
+    )
+    summarize_parser.add_argument(
+        "--chat",
+        type=str,
+        default=None,
+        help="Target chat JID to summarize",
+    )
+    summarize_parser.add_argument(
+        "--thread",
+        type=int,
+        default=None,
+        help="Message PK to trace and summarize full reply DAG thread",
+    )
+    summarize_parser.add_argument(
+        "--db",
+        type=Path,
+        default=DEFAULT_DB_PATH,
+        help="Target SQLite database (default: total_recall.db)",
+    )
+    summarize_parser.add_argument(
+        "--source",
+        type=Path,
+        default=None,
+        help="Path to ChatStorage.sqlite",
+    )
+    summarize_parser.add_argument(
+        "--contacts",
+        type=Path,
+        default=None,
+        help="Path to ContactsV2.sqlite",
+    )
+    summarize_parser.add_argument(
+        "--llm",
+        choices=["auto", "ollama", "mock"],
+        default="auto",
+        help="Local LLM adapter to use (default: auto)",
+    )
+    summarize_parser.add_argument(
+        "--model",
+        type=str,
+        default="qwen2.5:7b",
+        help="Model identifier (default: qwen2.5:7b)",
+    )
+    summarize_parser.add_argument(
+        "--temperature",
+        type=float,
+        default=0.0,
+        help="Inference temperature T in [0.0, 0.1] (default: 0.0)",
+    )
+    summarize_parser.add_argument(
+        "--intent",
+        type=str,
+        default=None,
+        help="Optional intent notes or focus instructions",
+    )
+    summarize_parser.add_argument(
+        "--no-verify",
+        action="store_true",
+        default=False,
+        help="Bypass prefix NLI verification and display raw completion",
     )
 
     return parser
@@ -819,6 +890,116 @@ def run_purge(args: argparse.Namespace) -> int:
     return 0
 
 
+def _get_llm_adapter(provider_choice: str, model: str):
+    if provider_choice == "mock":
+        return DeterministicMockLLMAdapter(model=model)
+    if provider_choice == "ollama":
+        return OllamaLLMAdapter(model=model)
+
+    # auto mode: try connecting to Ollama at 127.0.0.1:11434
+    try:
+        import urllib.request
+
+        req = urllib.request.Request("http://127.0.0.1:11434/api/tags", method="GET")
+        with urllib.request.urlopen(req, timeout=1.0) as resp:
+            if resp.status == 200:
+                return OllamaLLMAdapter(model=model)
+    except Exception:
+        pass
+    return DeterministicMockLLMAdapter(model=model)
+
+
+def run_summarize(args: argparse.Namespace) -> int:
+    if not args.chat and args.thread is None:
+        print(
+            "Error: Specify either --chat <chat_jid> or --thread <message_pk> to summarize.",
+            file=sys.stderr,
+        )
+        return 1
+
+    if not (0.0 <= args.temperature <= 0.1):
+        print(
+            f"Error: Summarization temperature must be in range [0.0, 0.1], got {args.temperature}",
+            file=sys.stderr,
+        )
+        return 1
+
+    llm = _get_llm_adapter(args.llm, args.model)
+    summarizer = Summarizer(llm=llm)
+
+    if args.thread is not None:
+        messages = []
+        if args.source and args.source.exists():
+            engine = IngestionEngine(args.source, args.contacts)
+            messages, _ = engine.extract_messages(
+                include_direct=True, include_groups=True
+            )
+        elif args.db and args.db.exists():
+            with SearchIndex(args.db) as index:
+                messages = index.get_all_messages()
+        else:
+            source, contacts = _resolve_source_and_contacts(args.source, args.contacts)
+            if source:
+                engine = IngestionEngine(source, contacts)
+                messages, _ = engine.extract_messages(
+                    include_direct=True, include_groups=True
+                )
+
+        if not messages:
+            print("Error: No messages available to trace thread.", file=sys.stderr)
+            return 1
+
+        summary = summarizer.summarize_thread(
+            messages=messages,
+            root_pk=args.thread,
+            temperature=args.temperature,
+        )
+    else:
+        episodes = []
+        if args.db and args.db.exists():
+            with SearchIndex(args.db) as index:
+                episodes = index.get_episodes_for_chat(args.chat)
+
+        if not episodes:
+            source, contacts = _resolve_source_and_contacts(args.source, args.contacts)
+            if source:
+                engine = IngestionEngine(source, contacts)
+                messages, _ = engine.extract_messages(
+                    include_direct=True, include_groups=True
+                )
+                chat_msgs = [m for m in messages if m.chat_jid == args.chat]
+                if chat_msgs:
+                    episodes = chunk_into_episodes(chat_msgs)
+
+        if not episodes:
+            print(f"Error: No episodes found for chat '{args.chat}'.", file=sys.stderr)
+            return 1
+
+        summary = summarizer.summarize(
+            episodes=episodes,
+            intent_notes=args.intent,
+            temperature=args.temperature,
+        )
+
+    print("=" * 80)
+    print(f"VERIFIED FACTUAL SUMMARY (Prefix NLI Grounded): {summary.title}")
+    print(
+        f"Chat: {summary.chat_jid} | Episodes: {summary.episodes_analyzed} | Messages: {summary.messages_analyzed}"
+    )
+    print("=" * 80 + "\n")
+    print(summary.summary_text + "\n")
+    print("-" * 80)
+    print("VERIFICATION AUDIT REPORT")
+    print(f"- Claims Entailed & Verified : {len(summary.claims)}")
+    print(f"- Claims Discarded           : {len(summary.discarded_claims)}")
+    if summary.discarded_claims:
+        print("  Discarded Claims Audit:")
+        for disc in summary.discarded_claims:
+            print(f"    * [{disc.discard_reason}] {disc.text}")
+    print("-" * 80)
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -835,6 +1016,8 @@ def main(argv: list[str] | None = None) -> int:
         return run_episodes(args)
     if args.command == "purge":
         return run_purge(args)
+    if args.command == "summarize":
+        return run_summarize(args)
     return 0
 
 
