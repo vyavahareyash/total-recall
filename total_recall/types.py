@@ -57,7 +57,20 @@ class ConversationalFlowEpisode:
 @dataclass(frozen=True)
 class ScoredEpisode:
     episode: ConversationalFlowEpisode
-    bm25_score: float
+    bm25_score: float = 0.0
+    rrf_score: float = 0.0
+    fts_rank: int | None = None
+    vec_rank: int | None = None
+    vector_distance: float | None = None
+
+
+@dataclass(frozen=True)
+class PurgeReport:
+    message_pk: int
+    episodes_updated: int
+    episodes_deleted: int
+    raw_messages_purged: int
+    secure_delete_executed: bool
 
 
 @dataclass(frozen=True)

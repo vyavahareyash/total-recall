@@ -7,6 +7,7 @@ from pathlib import Path
 from total_recall.chunking import chunk_into_episodes
 from total_recall.dag import ReplyDAG
 from total_recall.discovery import discover_whatsapp_containers
+from total_recall.embeddings import get_embedding_provider
 from total_recall.ingestion import IngestionEngine
 from total_recall.search import SearchIndex
 from total_recall.vault import VaultConfig
@@ -76,11 +77,23 @@ def build_parser() -> argparse.ArgumentParser:
         default=False,
         help="Bypass Opt-In Vault perimeter and ingest all matching chats",
     )
+    ingest_parser.add_argument(
+        "--embedder",
+        choices=["auto", "ollama", "mock"],
+        default="auto",
+        help="Local embedding provider to use (default: auto)",
+    )
+    ingest_parser.add_argument(
+        "--model",
+        type=str,
+        default="nomic-embed-text",
+        help="Embedding model name (default: nomic-embed-text)",
+    )
 
     # 2. Search subcommand
     search_parser = subparsers.add_parser(
         "search",
-        help="Search indexed messages using SQLite FTS5 BM25 lexical retrieval",
+        help="Search indexed chats using local hybrid RRF or lexical retrieval",
     )
     search_parser.add_argument(
         "query",
@@ -92,6 +105,30 @@ def build_parser() -> argparse.ArgumentParser:
         type=Path,
         default=DEFAULT_DB_PATH,
         help="Target SQLite database to query (default: total_recall.db)",
+    )
+    search_parser.add_argument(
+        "--target",
+        choices=["auto", "episodes", "messages"],
+        default="auto",
+        help="Entity to search: episodes or messages (default: auto)",
+    )
+    search_parser.add_argument(
+        "--mode",
+        choices=["hybrid", "lexical", "vector"],
+        default="hybrid",
+        help="Episode retrieval mode (default: hybrid)",
+    )
+    search_parser.add_argument(
+        "--embedder",
+        choices=["auto", "ollama", "mock"],
+        default="auto",
+        help="Embedding provider for semantic query (default: auto)",
+    )
+    search_parser.add_argument(
+        "--k-rrf",
+        type=float,
+        default=60.0,
+        help="Reciprocal Rank Fusion smoothing parameter (default: 60.0)",
     )
     search_parser.add_argument(
         "--limit",
@@ -233,6 +270,18 @@ def build_parser() -> argparse.ArgumentParser:
         default=5,
         help="Maximum episodes to return (default: 5)",
     )
+    episodes_parser.add_argument(
+        "--mode",
+        choices=["hybrid", "lexical", "vector"],
+        default="hybrid",
+        help="Episode retrieval mode when querying (default: hybrid)",
+    )
+    episodes_parser.add_argument(
+        "--embedder",
+        choices=["auto", "ollama", "mock"],
+        default="auto",
+        help="Embedding provider for semantic query (default: auto)",
+    )
 
     return parser
 
@@ -315,10 +364,15 @@ def run_ingest(args: argparse.Namespace) -> int:
     chat_names = {c.chat_jid: c.chat_name for c in report.chats}
     episodes = chunk_into_episodes(messages, chat_names=chat_names)
 
-    with SearchIndex(args.db) as index:
+    embedder = get_embedding_provider(
+        name=getattr(args, "embedder", "auto"),
+        model=getattr(args, "model", "nomic-embed-text"),
+    )
+
+    with SearchIndex(args.db, embedder=embedder) as index:
         index.index_messages(messages)
         indexed_episodes = index.index_episodes(
-            episodes, index_constituent_messages=False
+            episodes, index_constituent_messages=False, embedder=embedder
         )
 
     print(f"Ingestion complete into '{args.db}':")
@@ -345,18 +399,74 @@ def run_search(args: argparse.Namespace) -> int:
         )
         return 1
 
-    with SearchIndex(db_path) as index:
-        results = index.search(args.query, limit=args.limit)
+    target = getattr(args, "target", "auto")
+    mode = getattr(args, "mode", "hybrid")
+    embedder_name = getattr(args, "embedder", "auto")
+    embedder = get_embedding_provider(embedder_name)
 
-    if not results:
-        print(f"No matching messages found for: {args.query}")
+    with SearchIndex(db_path, embedder=embedder) as index:
+        # Determine whether to search messages or episodes
+        search_episodes = target == "episodes" or (
+            target == "auto" and len(index.get_all_episodes()) > 0
+        )
+        if target == "messages":
+            search_episodes = False
+
+        if not search_episodes:
+            results = index.search(args.query, limit=args.limit)
+            if not results:
+                print(f"No matching messages found for: {args.query}")
+                return 0
+
+            print(f"Found {len(results)} matching messages for '{args.query}':\n")
+            for r in results:
+                print(f"[{r.iso_date}] {r.sender_name}:")
+                print(f"{r.text}\n")
+            return 0
+
+        # Episode search
+        k_rrf = getattr(args, "k_rrf", 60.0)
+        if mode == "hybrid":
+            scored = index.search_hybrid(
+                args.query, limit=args.limit, k_rrf=k_rrf, embedder=embedder
+            )
+        elif mode == "vector":
+            scored = index.search_episodes_vector(
+                args.query, limit=args.limit, embedder=embedder
+            )
+        else:
+            scored = index.search_episodes(args.query, limit=args.limit)
+
+        if not scored:
+            print(f"No matching episodes found for: {args.query}")
+            return 0
+
+        print(f"Found {len(scored)} matching episodes for '{args.query}':\n")
+        for s in scored:
+            if mode == "hybrid":
+                score_str = f"RRF Score: {s.rrf_score:.5f}"
+                ranks = []
+                if s.fts_rank is not None:
+                    ranks.append(f"FTS rank: {s.fts_rank}")
+                if s.vec_rank is not None:
+                    ranks.append(f"Vec rank: {s.vec_rank}")
+                if ranks:
+                    score_str += f" ({', '.join(ranks)})"
+            elif mode == "vector":
+                dist_str = (
+                    f"{s.vector_distance:.4f}"
+                    if s.vector_distance is not None
+                    else "N/A"
+                )
+                score_str = f"Vector Distance: {dist_str} (Vec rank: {s.vec_rank})"
+            else:
+                score_str = f"BM25 Score: {s.bm25_score:.3f}"
+
+            print(f"{s.episode.header}\n{score_str}")
+            print("-" * 50)
+            print(s.episode.content)
+            print("\n" + "=" * 60 + "\n")
         return 0
-
-    print(f"Found {len(results)} matching messages for '{args.query}':\n")
-    for r in results:
-        print(f"[{r.iso_date}] {r.sender_name}:")
-        print(f"{r.text}\n")
-    return 0
 
 
 def run_thread(args: argparse.Namespace) -> int:
@@ -530,15 +640,35 @@ def run_episodes(args: argparse.Namespace) -> int:
         )
         return 1
 
-    with SearchIndex(db_path) as index:
+    mode = getattr(args, "mode", "hybrid")
+    embedder_name = getattr(args, "embedder", "auto")
+    embedder = get_embedding_provider(embedder_name)
+
+    with SearchIndex(db_path, embedder=embedder) as index:
         if args.query:
-            scored = index.search_episodes(args.query, limit=args.limit)
+            if mode == "lexical":
+                scored = index.search_episodes(args.query, limit=args.limit)
+            elif mode == "vector":
+                scored = index.search_episodes_vector(
+                    args.query, limit=args.limit, embedder=embedder
+                )
+            else:
+                scored = index.search_hybrid(
+                    args.query, limit=args.limit, embedder=embedder
+                )
+
             if not scored:
                 print(f"No matching episodes found for query: '{args.query}'")
                 return 0
             print(f"Found {len(scored)} matching episodes for '{args.query}':\n")
             for s in scored:
-                print(f"{s.episode.header}\nScore: {s.bm25_score:.3f}")
+                if mode == "hybrid":
+                    score_str = f"Score: {s.rrf_score:.5f}"
+                elif mode == "vector":
+                    score_str = f"Score: {s.vector_distance:.4f}"
+                else:
+                    score_str = f"Score: {s.bm25_score:.3f}"
+                print(f"{s.episode.header}\n{score_str}")
                 print("-" * 50)
                 print(s.episode.content)
                 print("\n" + "=" * 60 + "\n")

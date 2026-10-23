@@ -1,30 +1,79 @@
 from __future__ import annotations
 
 import json
+import math
 import re
 import sqlite3
+import struct
 from pathlib import Path
 
+from total_recall.embeddings import EmbeddingProvider, get_embedding_provider
 from total_recall.types import (
     ConversationalFlowEpisode,
     CrossBurstQuoteContext,
     NormalizedMessage,
+    PurgeReport,
     ScoredEpisode,
     SearchResult,
 )
 
 
-class SearchIndex:
-    """Manages SQLite FTS5 virtual tables and BM25 lexical retrieval for messages and episodes."""
+def cosine_distance(vec_a_bytes: bytes, vec_b_bytes: bytes) -> float:
+    """Compute cosine distance (1 - cosine_similarity) between two packed float32 vectors."""
+    n_floats = len(vec_a_bytes) // 4
+    if n_floats == 0 or len(vec_b_bytes) // 4 != n_floats:
+        return 1.0
+    vec_a = struct.unpack(f"{n_floats}f", vec_a_bytes)
+    vec_b = struct.unpack(f"{n_floats}f", vec_b_bytes)
 
-    def __init__(self, db_path: Path | str = ":memory:"):
+    dot = sum(a * b for a, b in zip(vec_a, vec_b, strict=False))
+    norm_a = math.sqrt(sum(a * a for a in vec_a))
+    norm_b = math.sqrt(sum(b * b for b in vec_b))
+    if norm_a == 0.0 or norm_b == 0.0:
+        return 1.0
+    sim = dot / (norm_a * norm_b)
+    # Numerical stability clamp
+    sim = max(-1.0, min(1.0, sim))
+    return max(0.0, 1.0 - sim)
+
+
+class SearchIndex:
+    """Manages SQLite FTS5 lexical retrieval and SIMD vector similarity with unified RRF scoring."""
+
+    def __init__(
+        self,
+        db_path: Path | str = ":memory:",
+        dimension: int = 384,
+        embedder: EmbeddingProvider | None = None,
+    ):
         self.db_path = str(db_path) if isinstance(db_path, Path) else db_path
+        self.dimension = dimension
+        self.embedder = embedder
         self.con = sqlite3.connect(self.db_path)
         self.con.row_factory = sqlite3.Row
+
+        self._sqlite_vec_available = False
+        self._init_sqlite_vec_or_fallback()
         self._init_schema()
 
+    def _init_sqlite_vec_or_fallback(self) -> None:
+        """Attempt to load native sqlite-vec extension or register portable SIMD fallback."""
+        if hasattr(self.con, "enable_load_extension"):
+            try:
+                import sqlite_vec
+
+                self.con.enable_load_extension(True)
+                sqlite_vec.load(self.con)
+                self.con.enable_load_extension(False)
+                self._sqlite_vec_available = True
+            except Exception:
+                self._sqlite_vec_available = False
+
+        if not self._sqlite_vec_available:
+            self.con.create_function("cosine_dist", 2, cosine_distance)
+
     def _init_schema(self) -> None:
-        """Create normalized messages and episodes tables along with FTS5 virtual tables."""
+        """Create normalized messages, episodes, FTS5 virtual tables, and vector tables."""
         cur = self.con.cursor()
         cur.executescript(
             """
@@ -83,7 +132,42 @@ class SearchIndex:
         if "parent_pk" not in columns:
             cur.execute("ALTER TABLE messages ADD COLUMN parent_pk INTEGER")
 
+        # Initialize vector store
+        cur.execute(
+            "SELECT type, sql FROM sqlite_master WHERE name = 'episode_vectors'"
+        )
+        existing_vec = cur.fetchone()
+        if existing_vec is None:
+            if self._sqlite_vec_available:
+                cur.execute(
+                    f"""
+                    CREATE VIRTUAL TABLE IF NOT EXISTS episode_vectors USING vec0(
+                        episode_id TEXT PRIMARY KEY,
+                        embedding float[{self.dimension}]
+                    );
+                    """
+                )
+            else:
+                cur.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS episode_vectors (
+                        episode_id TEXT PRIMARY KEY,
+                        embedding BLOB
+                    );
+                    """
+                )
+
         self.con.commit()
+
+    def _get_embedder(
+        self, override: EmbeddingProvider | None = None
+    ) -> EmbeddingProvider:
+        if override is not None:
+            return override
+        if self.embedder is not None:
+            return self.embedder
+        self.embedder = get_embedding_provider("auto")
+        return self.embedder
 
     def index_messages(self, messages: list[NormalizedMessage]) -> int:
         """Batch index normalized messages into both storage and FTS5 tables."""
@@ -132,8 +216,9 @@ class SearchIndex:
         self,
         episodes: list[ConversationalFlowEpisode],
         index_constituent_messages: bool = True,
+        embedder: EmbeddingProvider | None = None,
     ) -> int:
-        """Batch index Conversational Flow Episodes and their constituent messages."""
+        """Batch index Conversational Flow Episodes into FTS5 and vector tables."""
         if not episodes:
             return 0
 
@@ -143,6 +228,8 @@ class SearchIndex:
                 for m in ep.messages:
                     all_msgs[m.pk] = m
             self.index_messages(list(all_msgs.values()))
+
+        active_embedder = self._get_embedder(embedder)
 
         cur = self.con.cursor()
         for ep in episodes:
@@ -208,6 +295,23 @@ class SearchIndex:
                 VALUES (?, ?, ?, ?, ?)
                 """,
                 (ep.episode_id, ep.chat_jid, ep.chat_name, ep.header, ep.content),
+            )
+
+            # Compute and store dense vector embedding
+            text_to_embed = f"{ep.header}\n{ep.content}"
+            vec = active_embedder.embed_text(text_to_embed)
+            vec_bytes = struct.pack(f"{len(vec)}f", *vec)
+
+            cur.execute(
+                "DELETE FROM episode_vectors WHERE episode_id = ?",
+                (ep.episode_id,),
+            )
+            cur.execute(
+                """
+                INSERT INTO episode_vectors (episode_id, embedding)
+                VALUES (?, ?)
+                """,
+                (ep.episode_id, vec_bytes),
             )
 
         self.con.commit()
@@ -335,15 +439,298 @@ class SearchIndex:
         )
 
         results: list[ScoredEpisode] = []
-        for row in cur.fetchall():
+        for idx, row in enumerate(cur.fetchall(), 1):
             episode = self._row_to_episode(row)
             results.append(
                 ScoredEpisode(
                     episode=episode,
                     bm25_score=float(row["bm25_score"]),
+                    fts_rank=idx,
                 )
             )
         return results
+
+    def search_episodes_vector(
+        self,
+        query: str,
+        limit: int = 10,
+        embedder: EmbeddingProvider | None = None,
+    ) -> list[ScoredEpisode]:
+        """Perform vector KNN similarity search over indexed Conversational Flow Episodes."""
+        active_embedder = self._get_embedder(embedder)
+        query_vec = active_embedder.embed_text(query)
+        query_bytes = struct.pack(f"{len(query_vec)}f", *query_vec)
+
+        cur = self.con.cursor()
+        if self._sqlite_vec_available:
+            cur.execute(
+                """
+                SELECT
+                    e.*,
+                    v.distance AS vector_distance,
+                    ROW_NUMBER() OVER (ORDER BY v.distance ASC) AS rank_vec
+                FROM episode_vectors v
+                JOIN episodes e ON e.episode_id = v.episode_id
+                WHERE v.embedding MATCH ? AND k = ?
+                """,
+                (query_bytes, limit),
+            )
+        else:
+            cur.execute(
+                """
+                SELECT
+                    e.*,
+                    cosine_dist(v.embedding, ?) AS vector_distance,
+                    ROW_NUMBER() OVER (ORDER BY cosine_dist(v.embedding, ?) ASC) AS rank_vec
+                FROM episode_vectors v
+                JOIN episodes e ON e.episode_id = v.episode_id
+                ORDER BY vector_distance ASC
+                LIMIT ?
+                """,
+                (query_bytes, query_bytes, limit),
+            )
+
+        results: list[ScoredEpisode] = []
+        for row in cur.fetchall():
+            episode = self._row_to_episode(row)
+            vec_rank = int(row["rank_vec"])
+            dist = float(row["vector_distance"])
+            results.append(
+                ScoredEpisode(
+                    episode=episode,
+                    rrf_score=1.0 / (60.0 + vec_rank),
+                    vec_rank=vec_rank,
+                    vector_distance=dist,
+                )
+            )
+        return results
+
+    def search_hybrid(
+        self,
+        query: str,
+        limit: int = 10,
+        k_rrf: float = 60.0,
+        embedder: EmbeddingProvider | None = None,
+        candidate_limit: int = 20,
+    ) -> list[ScoredEpisode]:
+        """Execute unified SQL Reciprocal Rank Fusion (RRF) query merging FTS5 BM25 and vector similarity."""
+        active_embedder = self._get_embedder(embedder)
+        query_vec = active_embedder.embed_text(query)
+        query_bytes = struct.pack(f"{len(query_vec)}f", *query_vec)
+
+        fts_query = self.sanitize_fts_query(query)
+        has_fts = bool(fts_query)
+
+        cur = self.con.cursor()
+
+        if self._sqlite_vec_available:
+            vec_cte = """
+            vec_matches AS (
+                SELECT
+                    episode_id,
+                    distance AS vector_distance,
+                    ROW_NUMBER() OVER (ORDER BY distance ASC) AS rank_vec
+                FROM episode_vectors
+                WHERE embedding MATCH ? AND k = ?
+            )
+            """
+            vec_params = (query_bytes, candidate_limit)
+        else:
+            vec_cte = """
+            vec_matches AS (
+                SELECT
+                    episode_id,
+                    cosine_dist(embedding, ?) AS vector_distance,
+                    ROW_NUMBER() OVER (ORDER BY cosine_dist(embedding, ?) ASC) AS rank_vec
+                FROM episode_vectors
+                ORDER BY vector_distance ASC
+                LIMIT ?
+            )
+            """
+            vec_params = (query_bytes, query_bytes, candidate_limit)
+
+        if has_fts:
+            fts_cte = """
+            fts_matches AS (
+                SELECT
+                    episode_id,
+                    rank AS bm25_score,
+                    ROW_NUMBER() OVER (ORDER BY rank) AS rank_fts
+                FROM episodes_fts
+                WHERE episodes_fts MATCH ?
+                LIMIT ?
+            ),
+            """
+            fts_params = (fts_query, candidate_limit)
+            fts_join = "LEFT JOIN fts_matches f ON f.episode_id = c.episode_id"
+            fts_union = "SELECT episode_id FROM fts_matches UNION "
+            fts_score_expr = f"coalesce(1.0 / ({k_rrf} + f.rank_fts), 0.0)"
+            bm25_col = "coalesce(f.bm25_score, 0.0) AS bm25_score,"
+            rank_fts_col = "f.rank_fts,"
+        else:
+            fts_cte = ""
+            fts_params = ()
+            fts_join = ""
+            fts_union = ""
+            fts_score_expr = "0.0"
+            bm25_col = "0.0 AS bm25_score,"
+            rank_fts_col = "NULL AS rank_fts,"
+
+        vec_score_expr = f"coalesce(1.0 / ({k_rrf} + v.rank_vec), 0.0)"
+
+        sql = f"""
+        WITH {fts_cte}
+        {vec_cte},
+        candidates AS (
+            {fts_union}
+            SELECT episode_id FROM vec_matches
+        )
+        SELECT
+            e.*,
+            {rank_fts_col}
+            v.rank_vec,
+            v.vector_distance,
+            {bm25_col}
+            {fts_score_expr} AS fts_rrf_score,
+            {vec_score_expr} AS vec_rrf_score,
+            ({fts_score_expr} + {vec_score_expr}) AS rrf_score
+        FROM candidates c
+        JOIN episodes e ON e.episode_id = c.episode_id
+        {fts_join}
+        LEFT JOIN vec_matches v ON v.episode_id = c.episode_id
+        ORDER BY rrf_score DESC
+        LIMIT ?;
+        """
+
+        all_params = fts_params + vec_params + (limit,)
+        cur.execute(sql, all_params)
+
+        results: list[ScoredEpisode] = []
+        for row in cur.fetchall():
+            episode = self._row_to_episode(row)
+            results.append(
+                ScoredEpisode(
+                    episode=episode,
+                    bm25_score=float(row["bm25_score"] or 0.0),
+                    rrf_score=float(row["rrf_score"]),
+                    fts_rank=int(row["rank_fts"])
+                    if row["rank_fts"] is not None
+                    else None,
+                    vec_rank=int(row["rank_vec"])
+                    if row["rank_vec"] is not None
+                    else None,
+                    vector_distance=float(row["vector_distance"])
+                    if row["vector_distance"] is not None
+                    else None,
+                )
+            )
+        return results
+
+    def purge(
+        self,
+        message_pk: int,
+        embedder: EmbeddingProvider | None = None,
+    ) -> PurgeReport:
+        """Perform hard cryptographic purge (PRAGMA secure_delete = ON) of a revoked message."""
+        cur = self.con.cursor()
+
+        # Enforce secure delete
+        cur.execute("PRAGMA secure_delete = ON")
+
+        # 1. Identify raw message
+        cur.execute("SELECT pk, text FROM messages WHERE pk = ?", (message_pk,))
+        msg_row = cur.fetchone()
+        raw_purged = 1 if msg_row else 0
+
+        # 2. Delete from raw messages & FTS
+        cur.execute("DELETE FROM messages WHERE pk = ?", (message_pk,))
+        cur.execute("DELETE FROM messages_fts WHERE pk = ?", (str(message_pk),))
+
+        # 3. Find any episodes referencing this message
+        cur.execute("SELECT * FROM episodes")
+        all_ep_rows = cur.fetchall()
+
+        episodes_updated = 0
+        episodes_deleted = 0
+        active_embedder = self._get_embedder(embedder)
+
+        for row in all_ep_rows:
+            raw_msgs = json.loads(row["messages_json"] or "[]")
+            matching = [m for m in raw_msgs if int(m["pk"]) == message_pk]
+            if not matching:
+                continue
+
+            remaining = [m for m in raw_msgs if int(m["pk"]) != message_pk]
+            ep_id = str(row["episode_id"])
+
+            if not remaining:
+                # Purge empty episode completely
+                cur.execute("DELETE FROM episodes WHERE episode_id = ?", (ep_id,))
+                cur.execute("DELETE FROM episodes_fts WHERE episode_id = ?", (ep_id,))
+                cur.execute(
+                    "DELETE FROM episode_vectors WHERE episode_id = ?", (ep_id,)
+                )
+                episodes_deleted += 1
+            else:
+                # Rebuild content and re-embed
+                rebuilt_body_lines = []
+                for m in remaining:
+                    rebuilt_body_lines.append(
+                        f"[msg_id: {m['pk']} | {m['iso_date']}] {m['sender_name']}:\n{m['text']}"
+                    )
+                new_content = "\n\n".join(rebuilt_body_lines)
+
+                cur.execute(
+                    """
+                    UPDATE episodes
+                    SET content = ?, message_count = ?, messages_json = ?
+                    WHERE episode_id = ?
+                    """,
+                    (new_content, len(remaining), json.dumps(remaining), ep_id),
+                )
+
+                cur.execute("DELETE FROM episodes_fts WHERE episode_id = ?", (ep_id,))
+                cur.execute(
+                    """
+                    INSERT INTO episodes_fts (episode_id, chat_jid, chat_name, header, content)
+                    VALUES (?, ?, ?, ?, ?)
+                    """,
+                    (
+                        ep_id,
+                        row["chat_jid"],
+                        row["chat_name"],
+                        row["header"],
+                        new_content,
+                    ),
+                )
+
+                # Re-calculate vector embedding
+                new_vec = active_embedder.embed_text(f"{row['header']}\n{new_content}")
+                new_vec_bytes = struct.pack(f"{len(new_vec)}f", *new_vec)
+                cur.execute(
+                    "DELETE FROM episode_vectors WHERE episode_id = ?", (ep_id,)
+                )
+                cur.execute(
+                    """
+                    INSERT INTO episode_vectors (episode_id, embedding)
+                    VALUES (?, ?)
+                    """,
+                    (ep_id, new_vec_bytes),
+                )
+                episodes_updated += 1
+
+        self.con.commit()
+
+        # Vacuum to overwrite cleared space
+        cur.execute("PRAGMA incremental_vacuum")
+
+        return PurgeReport(
+            message_pk=message_pk,
+            episodes_updated=episodes_updated,
+            episodes_deleted=episodes_deleted,
+            raw_messages_purged=raw_purged,
+            secure_delete_executed=True,
+        )
 
     def get_episode(self, episode_id: str) -> ConversationalFlowEpisode | None:
         """Fetch a single episode by episode ID."""
