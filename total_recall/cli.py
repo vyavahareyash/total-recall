@@ -283,6 +283,55 @@ def build_parser() -> argparse.ArgumentParser:
         help="Embedding provider for semantic query (default: auto)",
     )
 
+    # 6. Purge subcommand
+    purge_parser = subparsers.add_parser(
+        "purge",
+        help="Hard cryptographic purge of revoked messages or expired disappearing TTLs",
+    )
+    purge_parser.add_argument(
+        "message_id",
+        type=str,
+        nargs="?",
+        default=None,
+        help="Message PK or Stanza ID to purge",
+    )
+    purge_parser.add_argument(
+        "--db",
+        type=Path,
+        default=DEFAULT_DB_PATH,
+        help="Target SQLite database (default: total_recall.db)",
+    )
+    purge_parser.add_argument(
+        "--expired",
+        action="store_true",
+        default=False,
+        help="Purge all expired disappearing messages based on TTL timer metadata",
+    )
+    purge_parser.add_argument(
+        "--all-revoked",
+        action="store_true",
+        default=False,
+        help="Detect and purge all revoked/deleted messages by comparing with source ChatStorage",
+    )
+    purge_parser.add_argument(
+        "--source",
+        type=Path,
+        default=None,
+        help="Path to ChatStorage.sqlite (for --all-revoked)",
+    )
+    purge_parser.add_argument(
+        "--contacts",
+        type=Path,
+        default=None,
+        help="Path to ContactsV2.sqlite",
+    )
+    purge_parser.add_argument(
+        "--embedder",
+        choices=["auto", "ollama", "mock"],
+        default="auto",
+        help="Embedding provider for recomputing parent episode vectors (default: auto)",
+    )
+
     return parser
 
 
@@ -370,6 +419,16 @@ def run_ingest(args: argparse.Namespace) -> int:
     )
 
     with SearchIndex(args.db, embedder=embedder) as index:
+        rev_reports, exp_reports = engine.purge_revocations_and_expired(
+            index=index, embedder=embedder
+        )
+        if rev_reports:
+            print(f"Purged {len(rev_reports)} revoked message(s) from index.")
+        if exp_reports:
+            print(
+                f"Purged {len(exp_reports)} expired disappearing message(s) from index."
+            )
+
         index.index_messages(messages)
         indexed_episodes = index.index_episodes(
             episodes, index_constituent_messages=False, embedder=embedder
@@ -692,6 +751,74 @@ def run_episodes(args: argparse.Namespace) -> int:
     return 0
 
 
+def run_purge(args: argparse.Namespace) -> int:
+    db_path: Path = args.db
+    if not db_path.exists():
+        print(f"Error: Database '{db_path}' does not exist.", file=sys.stderr)
+        return 1
+
+    embedder_name = getattr(args, "embedder", "auto")
+    embedder = get_embedding_provider(embedder_name)
+
+    if not args.message_id and not args.expired and not args.all_revoked:
+        print(
+            "Error: Please specify a message_id, --expired, or --all-revoked.",
+            file=sys.stderr,
+        )
+        return 1
+
+    with SearchIndex(db_path, embedder=embedder) as index:
+        # Case 1: Purge specific message by PK or stanza_id
+        if args.message_id:
+            report = index.purge(args.message_id, embedder=embedder)
+            target = (
+                f"#{report.message_pk}" if report.message_pk else str(args.message_id)
+            )
+            if (
+                report.raw_messages_purged > 0
+                or report.episodes_updated > 0
+                or report.episodes_deleted > 0
+            ):
+                print(f"Cryptographic purge successful for message {target}:")
+                print(f"  Raw message removed: {report.raw_messages_purged}")
+                print(f"  Episodes updated: {report.episodes_updated}")
+                print(f"  Episodes deleted: {report.episodes_deleted}")
+                print(
+                    f"  Disk secure delete (zero-fill): {report.secure_delete_executed}"
+                )
+            else:
+                print(f"Message {target} not found in index.")
+
+        # Case 2: Purge expired disappearing messages
+        if args.expired:
+            expired_reports = index.purge_expired(embedder=embedder)
+            print(f"Purged {len(expired_reports)} expired disappearing message(s).")
+
+        # Case 3: Scan source ChatStorage for all revocations
+        if args.all_revoked:
+            source, contacts = _resolve_source_and_contacts(args.source, args.contacts)
+            if not source:
+                print(
+                    "Error: ChatStorage.sqlite not found. Specify --source explicitly.",
+                    file=sys.stderr,
+                )
+                return 1
+            engine = IngestionEngine(source, contacts)
+            rev_pks = engine.detect_revocation_events(index=index)
+            rev_count = 0
+            for pk in rev_pks:
+                rep = index.purge(pk, embedder=embedder)
+                if (
+                    rep.raw_messages_purged > 0
+                    or rep.episodes_updated > 0
+                    or rep.episodes_deleted > 0
+                ):
+                    rev_count += 1
+            print(f"Purged {rev_count} revoked message(s) identified from '{source}'.")
+
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -706,6 +833,8 @@ def main(argv: list[str] | None = None) -> int:
         return run_vault(args)
     if args.command == "episodes":
         return run_episodes(args)
+    if args.command == "purge":
+        return run_purge(args)
     return 0
 
 

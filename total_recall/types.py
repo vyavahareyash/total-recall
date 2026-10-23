@@ -17,6 +17,18 @@ class NormalizedMessage:
     iso_date: str
     text: str
     parent_pk: int | None = None
+    expire_timer: int | None = None
+    expires_at: float | None = None
+
+    def __post_init__(self) -> None:
+        if (
+            self.expire_timer is not None
+            and self.expire_timer > 0
+            and self.expires_at is None
+        ):
+            object.__setattr__(
+                self, "expires_at", self.unix_timestamp + float(self.expire_timer)
+            )
 
 
 @dataclass(frozen=True)
@@ -52,6 +64,7 @@ class ConversationalFlowEpisode:
     cross_burst_quotes: tuple[CrossBurstQuoteContext, ...]
     header: str
     content: str
+    min_expires_at: float | None = None
 
 
 @dataclass(frozen=True)
@@ -71,6 +84,7 @@ class PurgeReport:
     episodes_deleted: int
     raw_messages_purged: int
     secure_delete_executed: bool
+    stanza_id: str | None = None
 
 
 @dataclass(frozen=True)
@@ -80,3 +94,5 @@ class IngestionStats:
     group_sessions_ingested: int = 0
     messages_ingested: int = 0
     episodes_generated: int = 0
+    revocations_detected: int = 0
+    expired_purged: int = 0
