@@ -1,16 +1,23 @@
 from __future__ import annotations
 
+import re
 import sqlite3
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from total_recall.chunking import chunk_into_episodes
 from total_recall.types import (
     ConversationalFlowEpisode,
     IngestionStats,
     NormalizedMessage,
+    PurgeReport,
 )
 from total_recall.vault import DiscoveredChat, IngestionReport, VaultConfig
+
+if TYPE_CHECKING:
+    from total_recall.embeddings import EmbeddingProvider
+    from total_recall.search import SearchIndex
 
 # Apple Epoch offset: seconds between 1970-01-01 and 2001-01-01 UTC
 APPLE_EPOCH_OFFSET = 978_307_200
@@ -18,6 +25,45 @@ APPLE_EPOCH_OFFSET = 978_307_200
 # 32-bit Sentinel boundary constants
 SENTINEL_SORT_THRESHOLD = 200_000_000
 SENTINEL_COUNTER_VALUE = 2_147_473_649
+
+
+def parse_disappearing_timer_string(val: str) -> int | None:
+    """Parse human-readable disappearing message timer strings into seconds."""
+    if not val:
+        return None
+    val_clean = val.strip().lower()
+    if val_clean in ("off", "0", "none", "disabled", "never"):
+        return None
+    if val_clean in ("24h", "24 hours", "24 hrs", "1d", "1 day", "86400"):
+        return 86_400
+    if val_clean in ("7d", "7 days", "1w", "1 week", "604800"):
+        return 604_800
+    if val_clean in ("90d", "90 days", "3m", "3 months", "7776000"):
+        return 7_776_000
+
+    match = re.match(
+        r"^(\d+)\s*(s|sec|seconds?|m|min|minutes?|h|hr|hours?|d|days?|w|weeks?)$",
+        val_clean,
+    )
+    if match:
+        num = int(match.group(1))
+        unit = match.group(2)
+        if unit.startswith("s"):
+            return num
+        if unit.startswith("m") and not unit.startswith("mo"):
+            return num * 60
+        if unit.startswith("h"):
+            return num * 3600
+        if unit.startswith("d"):
+            return num * 86400
+        if unit.startswith("w"):
+            return num * 604800
+
+    try:
+        sec = int(val_clean)
+        return sec if sec > 0 else None
+    except ValueError:
+        return None
 
 
 def apple_epoch_to_unix(apple_timestamp: float) -> float:
@@ -229,6 +275,15 @@ class IngestionEngine:
 
         where_clause = " AND ".join(where_conditions)
 
+        # Check for optional expiration timer columns
+        cur.execute("PRAGMA table_info(ZWAMESSAGE)")
+        msg_cols = {row["name"] for row in cur.fetchall()}
+        cur.execute("PRAGMA table_info(ZWACHATSESSION)")
+        sess_cols = {row["name"] for row in cur.fetchall()}
+
+        msg_expire_col = "m.ZEXPIRETIMER" if "ZEXPIRETIMER" in msg_cols else "NULL"
+        sess_expire_col = "s.ZEXPIRETIMER" if "ZEXPIRETIMER" in sess_cols else "NULL"
+
         query = f"""
             SELECT
                 m.Z_PK,
@@ -241,7 +296,9 @@ class IngestionEngine:
                 m.ZPARENTMESSAGE,
                 m.ZMESSAGEDATE,
                 m.ZSORT,
-                m.ZTEXT
+                m.ZTEXT,
+                {msg_expire_col} AS msg_expire_timer,
+                {sess_expire_col} AS sess_expire_timer
             FROM ZWAMESSAGE m
             JOIN ZWACHATSESSION s ON s.Z_PK = m.ZCHATSESSION
             WHERE {where_clause}
@@ -307,6 +364,14 @@ class IngestionEngine:
                 else None
             )
 
+            raw_msg_timer = row["msg_expire_timer"]
+            raw_sess_timer = row["sess_expire_timer"]
+            expire_timer = None
+            if raw_msg_timer is not None:
+                expire_timer = int(raw_msg_timer) if int(raw_msg_timer) > 0 else None
+            elif raw_sess_timer is not None:
+                expire_timer = int(raw_sess_timer) if int(raw_sess_timer) > 0 else None
+
             messages.append(
                 NormalizedMessage(
                     pk=int(row["Z_PK"]),
@@ -321,6 +386,7 @@ class IngestionEngine:
                     iso_date=iso_str,
                     text=str(row["ZTEXT"]),
                     parent_pk=parent_pk,
+                    expire_timer=expire_timer,
                 )
             )
 
@@ -346,6 +412,89 @@ class IngestionEngine:
         )
         return messages, stats
 
+    def detect_revocation_events(self, index: SearchIndex | None = None) -> list[int]:
+        """Detect message revocation events (cleared ZTEXT, tombstones, REVOKE types, or deleted records)."""
+        con = self.open_lock_free_connection(self.chat_storage_path)
+        con.row_factory = sqlite3.Row
+        cur = con.cursor()
+
+        cur.execute("PRAGMA table_info(ZWAMESSAGE)")
+        msg_cols = {row["name"] for row in cur.fetchall()}
+
+        revoked_pks: set[int] = set()
+
+        # 1. Any messages in ChatStorage with NULL/empty ZTEXT or tombstone text
+        cur.execute(
+            """
+            SELECT Z_PK FROM ZWAMESSAGE
+            WHERE ZTEXT IS NULL
+               OR length(trim(ZTEXT)) = 0
+               OR ZTEXT = 'This message was deleted'
+               OR ZTEXT = 'ProtocolMessage_REVOKE'
+            """
+        )
+        for row in cur.fetchall():
+            revoked_pks.add(int(row["Z_PK"]))
+
+        # 2. Check ZMESSAGETYPE if column exists (e.g. ProtocolMessage_REVOKE / revocation types 15, 8, -1)
+        if "ZMESSAGETYPE" in msg_cols:
+            cur.execute(
+                """
+                SELECT Z_PK, ZPARENTMESSAGE FROM ZWAMESSAGE
+                WHERE ZMESSAGETYPE IN (15, 8, -1)
+                   OR ZTEXT = 'ProtocolMessage_REVOKE'
+                """
+            )
+            for row in cur.fetchall():
+                revoked_pks.add(int(row["Z_PK"]))
+                if row["ZPARENTMESSAGE"] is not None:
+                    revoked_pks.add(int(row["ZPARENTMESSAGE"]))
+
+        # 3. If SearchIndex provided: cross-reference all indexed PKs to detect deleted/cleared messages
+        if index is not None:
+            indexed_pks = index.get_all_message_pks()
+            if indexed_pks:
+                cur.execute(
+                    """
+                    SELECT Z_PK FROM ZWAMESSAGE
+                    WHERE ZTEXT IS NOT NULL
+                      AND length(trim(ZTEXT)) > 0
+                      AND ZTEXT != 'This message was deleted'
+                      AND ZTEXT != 'ProtocolMessage_REVOKE'
+                    """
+                )
+                valid_source_pks = {int(row["Z_PK"]) for row in cur.fetchall()}
+                for pk in indexed_pks:
+                    if pk not in valid_source_pks:
+                        revoked_pks.add(pk)
+
+        con.close()
+        return sorted(revoked_pks)
+
+    def purge_revocations_and_expired(
+        self,
+        index: SearchIndex,
+        current_timestamp: float | None = None,
+        embedder: EmbeddingProvider | None = None,
+    ) -> tuple[list[PurgeReport], list[PurgeReport]]:
+        """Detect and purge both revoked messages and expired disappearing messages."""
+        revoked_pks = self.detect_revocation_events(index=index)
+        revocation_reports: list[PurgeReport] = []
+        for pk in revoked_pks:
+            report = index.purge(pk, embedder=embedder)
+            if (
+                report.raw_messages_purged > 0
+                or report.episodes_updated > 0
+                or report.episodes_deleted > 0
+            ):
+                revocation_reports.append(report)
+
+        expired_reports = index.purge_expired(
+            current_timestamp=current_timestamp, embedder=embedder
+        )
+
+        return revocation_reports, expired_reports
+
     def extract_1to1_messages(
         self,
         vault_config: VaultConfig | None = None,
@@ -368,8 +517,20 @@ class IngestionEngine:
         self,
         vault_config: VaultConfig,
         chunk_episodes: bool = True,
+        index: SearchIndex | None = None,
+        embedder: EmbeddingProvider | None = None,
+        current_timestamp: float | None = None,
     ) -> tuple[list[ConversationalFlowEpisode], IngestionReport]:
         """Synchronize WhatsApp store using Opt-In Chat Vault perimeter and return episodes & report."""
+        rev_count = 0
+        exp_count = 0
+        if index is not None:
+            rev_reps, exp_reps = self.purge_revocations_and_expired(
+                index=index, current_timestamp=current_timestamp, embedder=embedder
+            )
+            rev_count = len(rev_reps)
+            exp_count = len(exp_reps)
+
         report = self.discover_chats(vault_config=vault_config)
         messages, _ = self.extract_messages(
             include_direct=True, include_groups=True, vault_config=vault_config
@@ -394,6 +555,8 @@ class IngestionEngine:
             ingested_chats_count=len(ingested_jids),
             ingested_messages_count=len(messages),
             episodes_generated_count=len(episodes),
+            revocations_purged_count=rev_count,
+            expired_purged_count=exp_count,
         )
 
         return episodes, final_report

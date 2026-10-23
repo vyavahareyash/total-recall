@@ -5,8 +5,10 @@ import math
 import re
 import sqlite3
 import struct
+from datetime import UTC, datetime
 from pathlib import Path
 
+from total_recall.chunking import rebuild_episode_without_message
 from total_recall.embeddings import EmbeddingProvider, get_embedding_provider
 from total_recall.types import (
     ConversationalFlowEpisode,
@@ -51,6 +53,7 @@ class SearchIndex:
         self.embedder = embedder
         self.con = sqlite3.connect(self.db_path)
         self.con.row_factory = sqlite3.Row
+        self.con.execute("PRAGMA secure_delete = ON")
 
         self._sqlite_vec_available = False
         self._init_sqlite_vec_or_fallback()
@@ -89,7 +92,9 @@ class SearchIndex:
                 unix_timestamp REAL,
                 iso_date TEXT,
                 text TEXT,
-                parent_pk INTEGER
+                parent_pk INTEGER,
+                expire_timer INTEGER,
+                expires_at REAL
             );
 
             CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts USING fts5(
@@ -112,7 +117,8 @@ class SearchIndex:
                 content TEXT,
                 message_count INTEGER,
                 messages_json TEXT,
-                cross_burst_quotes_json TEXT
+                cross_burst_quotes_json TEXT,
+                min_expires_at REAL
             );
 
             CREATE VIRTUAL TABLE IF NOT EXISTS episodes_fts USING fts5(
@@ -123,14 +129,26 @@ class SearchIndex:
                 content,
                 tokenize = 'porter unicode61'
             );
+
+            CREATE INDEX IF NOT EXISTS idx_messages_expires_at ON messages(expires_at) WHERE expires_at IS NOT NULL;
+            CREATE INDEX IF NOT EXISTS idx_episodes_expires_at ON episodes(min_expires_at) WHERE min_expires_at IS NOT NULL;
             """
         )
 
-        # Migrate existing schema if parent_pk column is missing
+        # Migrate existing schema if columns are missing
         cur.execute("PRAGMA table_info(messages)")
-        columns = [row["name"] for row in cur.fetchall()]
-        if "parent_pk" not in columns:
+        msg_columns = [row["name"] for row in cur.fetchall()]
+        if "parent_pk" not in msg_columns:
             cur.execute("ALTER TABLE messages ADD COLUMN parent_pk INTEGER")
+        if "expire_timer" not in msg_columns:
+            cur.execute("ALTER TABLE messages ADD COLUMN expire_timer INTEGER")
+        if "expires_at" not in msg_columns:
+            cur.execute("ALTER TABLE messages ADD COLUMN expires_at REAL")
+
+        cur.execute("PRAGMA table_info(episodes)")
+        ep_columns = [row["name"] for row in cur.fetchall()]
+        if "min_expires_at" not in ep_columns:
+            cur.execute("ALTER TABLE episodes ADD COLUMN min_expires_at REAL")
 
         # Initialize vector store
         cur.execute(
@@ -181,8 +199,8 @@ class SearchIndex:
                 INSERT OR REPLACE INTO messages (
                     pk, chat_session_id, chat_jid, stanza_id, is_from_me,
                     sender_name, sender_jid, apple_date, unix_timestamp,
-                    iso_date, text, parent_pk
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    iso_date, text, parent_pk, expire_timer, expires_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     msg.pk,
@@ -197,6 +215,8 @@ class SearchIndex:
                     msg.iso_date,
                     msg.text,
                     msg.parent_pk,
+                    msg.expire_timer,
+                    msg.expires_at,
                 ),
             )
 
@@ -247,6 +267,8 @@ class SearchIndex:
                     "iso_date": m.iso_date,
                     "text": m.text,
                     "parent_pk": m.parent_pk,
+                    "expire_timer": m.expire_timer,
+                    "expires_at": m.expires_at,
                 }
                 for m in ep.messages
             ]
@@ -267,8 +289,9 @@ class SearchIndex:
                 INSERT OR REPLACE INTO episodes (
                     episode_id, chat_jid, chat_name, start_timestamp,
                     end_timestamp, start_iso, end_iso, header, content,
-                    message_count, messages_json, cross_burst_quotes_json
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    message_count, messages_json, cross_burst_quotes_json,
+                    min_expires_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     ep.episode_id,
@@ -283,6 +306,7 @@ class SearchIndex:
                     len(ep.messages),
                     json.dumps(msgs_payload),
                     json.dumps(quotes_payload),
+                    ep.min_expires_at,
                 ),
             )
 
@@ -382,6 +406,12 @@ class SearchIndex:
                 parent_pk=int(d["parent_pk"])
                 if d.get("parent_pk") is not None
                 else None,
+                expire_timer=int(d["expire_timer"])
+                if d.get("expire_timer") is not None
+                else None,
+                expires_at=float(d["expires_at"])
+                if d.get("expires_at") is not None
+                else None,
             )
             for d in raw_msgs
         )
@@ -402,6 +432,13 @@ class SearchIndex:
         for m in msgs:
             seen_participants[m.sender_name] = None
 
+        keys = set(row.keys())
+        min_exp = (
+            float(row["min_expires_at"])
+            if ("min_expires_at" in keys and row["min_expires_at"] is not None)
+            else None
+        )
+
         return ConversationalFlowEpisode(
             episode_id=str(row["episode_id"]),
             chat_jid=str(row["chat_jid"]),
@@ -415,6 +452,7 @@ class SearchIndex:
             cross_burst_quotes=quotes,
             header=str(row["header"]),
             content=str(row["content"]),
+            min_expires_at=min_exp,
         )
 
     def search_episodes(self, query: str, limit: int = 10) -> list[ScoredEpisode]:
@@ -628,7 +666,7 @@ class SearchIndex:
 
     def purge(
         self,
-        message_pk: int,
+        message_pk: int | str,
         embedder: EmbeddingProvider | None = None,
     ) -> PurgeReport:
         """Perform hard cryptographic purge (PRAGMA secure_delete = ON) of a revoked message."""
@@ -637,16 +675,39 @@ class SearchIndex:
         # Enforce secure delete
         cur.execute("PRAGMA secure_delete = ON")
 
-        # 1. Identify raw message
-        cur.execute("SELECT pk, text FROM messages WHERE pk = ?", (message_pk,))
-        msg_row = cur.fetchone()
-        raw_purged = 1 if msg_row else 0
+        target_pk: int | None = None
+        target_stanza_id: str | None = None
 
-        # 2. Delete from raw messages & FTS
-        cur.execute("DELETE FROM messages WHERE pk = ?", (message_pk,))
-        cur.execute("DELETE FROM messages_fts WHERE pk = ?", (str(message_pk),))
+        if isinstance(message_pk, int):
+            target_pk = message_pk
+            cur.execute("SELECT stanza_id FROM messages WHERE pk = ?", (target_pk,))
+            row = cur.fetchone()
+            if row:
+                target_stanza_id = row["stanza_id"]
+        elif isinstance(message_pk, str) and message_pk.isdigit():
+            target_pk = int(message_pk)
+            cur.execute("SELECT stanza_id FROM messages WHERE pk = ?", (target_pk,))
+            row = cur.fetchone()
+            if row:
+                target_stanza_id = row["stanza_id"]
+        else:
+            target_stanza_id = str(message_pk)
+            cur.execute(
+                "SELECT pk FROM messages WHERE stanza_id = ?", (target_stanza_id,)
+            )
+            row = cur.fetchone()
+            if row:
+                target_pk = int(row["pk"])
 
-        # 3. Find any episodes referencing this message
+        raw_purged = 0
+        if target_pk is not None:
+            cur.execute("SELECT pk FROM messages WHERE pk = ?", (target_pk,))
+            if cur.fetchone():
+                raw_purged = 1
+            cur.execute("DELETE FROM messages WHERE pk = ?", (target_pk,))
+            cur.execute("DELETE FROM messages_fts WHERE pk = ?", (str(target_pk),))
+
+        # Scan episodes referencing this message
         cur.execute("SELECT * FROM episodes")
         all_ep_rows = cur.fetchall()
 
@@ -655,15 +716,33 @@ class SearchIndex:
         active_embedder = self._get_embedder(embedder)
 
         for row in all_ep_rows:
-            raw_msgs = json.loads(row["messages_json"] or "[]")
-            matching = [m for m in raw_msgs if int(m["pk"]) == message_pk]
-            if not matching:
+            ep = self._row_to_episode(row)
+            has_match = False
+            if target_pk is not None:
+                has_match = any(m.pk == target_pk for m in ep.messages)
+            if not has_match and target_stanza_id:
+                has_match = any(m.stanza_id == target_stanza_id for m in ep.messages)
+                if has_match and target_pk is None:
+                    matched = [
+                        m for m in ep.messages if m.stanza_id == target_stanza_id
+                    ]
+                    if matched:
+                        target_pk = matched[0].pk
+
+            if not has_match and target_pk is not None:
+                has_match = any(q.parent_pk == target_pk for q in ep.cross_burst_quotes)
+
+            if not has_match:
                 continue
 
-            remaining = [m for m in raw_msgs if int(m["pk"]) != message_pk]
-            ep_id = str(row["episode_id"])
+            ep_id = ep.episode_id
+            rebuilt = (
+                rebuild_episode_without_message(ep, target_pk)
+                if target_pk is not None
+                else None
+            )
 
-            if not remaining:
+            if rebuilt is None:
                 # Purge empty episode completely
                 cur.execute("DELETE FROM episodes WHERE episode_id = ?", (ep_id,))
                 cur.execute("DELETE FROM episodes_fts WHERE episode_id = ?", (ep_id,))
@@ -672,21 +751,58 @@ class SearchIndex:
                 )
                 episodes_deleted += 1
             else:
-                # Rebuild content and re-embed
-                rebuilt_body_lines = []
-                for m in remaining:
-                    rebuilt_body_lines.append(
-                        f"[msg_id: {m['pk']} | {m['iso_date']}] {m['sender_name']}:\n{m['text']}"
-                    )
-                new_content = "\n\n".join(rebuilt_body_lines)
+                msgs_payload = [
+                    {
+                        "pk": m.pk,
+                        "chat_session_id": m.chat_session_id,
+                        "chat_jid": m.chat_jid,
+                        "stanza_id": m.stanza_id,
+                        "is_from_me": m.is_from_me,
+                        "sender_name": m.sender_name,
+                        "sender_jid": m.sender_jid,
+                        "apple_date": m.apple_date,
+                        "unix_timestamp": m.unix_timestamp,
+                        "iso_date": m.iso_date,
+                        "text": m.text,
+                        "parent_pk": m.parent_pk,
+                        "expire_timer": m.expire_timer,
+                        "expires_at": m.expires_at,
+                    }
+                    for m in rebuilt.messages
+                ]
+                quotes_payload = [
+                    {
+                        "child_pk": q.child_pk,
+                        "parent_pk": q.parent_pk,
+                        "parent_sender_name": q.parent_sender_name,
+                        "parent_text": q.parent_text,
+                        "parent_iso_date": q.parent_iso_date,
+                    }
+                    for q in rebuilt.cross_burst_quotes
+                ]
 
                 cur.execute(
                     """
                     UPDATE episodes
-                    SET content = ?, message_count = ?, messages_json = ?
+                    SET header = ?, content = ?, start_timestamp = ?,
+                        end_timestamp = ?, start_iso = ?, end_iso = ?,
+                        message_count = ?, messages_json = ?,
+                        cross_burst_quotes_json = ?, min_expires_at = ?
                     WHERE episode_id = ?
                     """,
-                    (new_content, len(remaining), json.dumps(remaining), ep_id),
+                    (
+                        rebuilt.header,
+                        rebuilt.content,
+                        rebuilt.start_timestamp,
+                        rebuilt.end_timestamp,
+                        rebuilt.start_iso,
+                        rebuilt.end_iso,
+                        len(rebuilt.messages),
+                        json.dumps(msgs_payload),
+                        json.dumps(quotes_payload),
+                        rebuilt.min_expires_at,
+                        ep_id,
+                    ),
                 )
 
                 cur.execute("DELETE FROM episodes_fts WHERE episode_id = ?", (ep_id,))
@@ -697,15 +813,16 @@ class SearchIndex:
                     """,
                     (
                         ep_id,
-                        row["chat_jid"],
-                        row["chat_name"],
-                        row["header"],
-                        new_content,
+                        rebuilt.chat_jid,
+                        rebuilt.chat_name,
+                        rebuilt.header,
+                        rebuilt.content,
                     ),
                 )
 
                 # Re-calculate vector embedding
-                new_vec = active_embedder.embed_text(f"{row['header']}\n{new_content}")
+                text_to_embed = f"{rebuilt.header}\n{rebuilt.content}"
+                new_vec = active_embedder.embed_text(text_to_embed)
                 new_vec_bytes = struct.pack(f"{len(new_vec)}f", *new_vec)
                 cur.execute(
                     "DELETE FROM episode_vectors WHERE episode_id = ?", (ep_id,)
@@ -725,12 +842,59 @@ class SearchIndex:
         cur.execute("PRAGMA incremental_vacuum")
 
         return PurgeReport(
-            message_pk=message_pk,
+            message_pk=target_pk if target_pk is not None else 0,
             episodes_updated=episodes_updated,
             episodes_deleted=episodes_deleted,
             raw_messages_purged=raw_purged,
             secure_delete_executed=True,
+            stanza_id=target_stanza_id,
         )
+
+    def purge_by_stanza_id(
+        self, stanza_id: str, embedder: EmbeddingProvider | None = None
+    ) -> PurgeReport:
+        """Purge message by its WhatsApp stanza ID."""
+        return self.purge(stanza_id, embedder=embedder)
+
+    def purge_expired(
+        self,
+        current_timestamp: float | None = None,
+        embedder: EmbeddingProvider | None = None,
+    ) -> list[PurgeReport]:
+        """Purge all expired disappearing messages based on expires_at TTL metadata."""
+        if current_timestamp is None:
+            current_timestamp = datetime.now(UTC).timestamp()
+
+        cur = self.con.cursor()
+        cur.execute(
+            "SELECT pk FROM messages WHERE expires_at IS NOT NULL AND expires_at <= ? ORDER BY pk ASC",
+            (current_timestamp,),
+        )
+        pks_to_purge = [int(row["pk"]) for row in cur.fetchall()]
+        reports: list[PurgeReport] = []
+        for pk in pks_to_purge:
+            rep = self.purge(pk, embedder=embedder)
+            reports.append(rep)
+        return reports
+
+    def get_all_message_pks(self) -> set[int]:
+        """Return set of all indexed message primary keys."""
+        cur = self.con.cursor()
+        cur.execute("SELECT pk FROM messages")
+        return {int(row["pk"]) for row in cur.fetchall()}
+
+    def get_expired_messages(
+        self, current_timestamp: float | None = None
+    ) -> list[NormalizedMessage]:
+        """Return list of messages whose expires_at is past the timestamp."""
+        if current_timestamp is None:
+            current_timestamp = datetime.now(UTC).timestamp()
+        cur = self.con.cursor()
+        cur.execute(
+            "SELECT * FROM messages WHERE expires_at IS NOT NULL AND expires_at <= ? ORDER BY unix_timestamp ASC, pk ASC",
+            (current_timestamp,),
+        )
+        return [self._row_to_normalized_message(row) for row in cur.fetchall()]
 
     def get_episode(self, episode_id: str) -> ConversationalFlowEpisode | None:
         """Fetch a single episode by episode ID."""
@@ -756,6 +920,7 @@ class SearchIndex:
 
     @staticmethod
     def _row_to_normalized_message(row: sqlite3.Row) -> NormalizedMessage:
+        keys = set(row.keys())
         return NormalizedMessage(
             pk=int(row["pk"]),
             chat_session_id=int(row["chat_session_id"]),
@@ -769,6 +934,12 @@ class SearchIndex:
             iso_date=str(row["iso_date"]),
             text=str(row["text"]),
             parent_pk=int(row["parent_pk"]) if row["parent_pk"] is not None else None,
+            expire_timer=int(row["expire_timer"])
+            if ("expire_timer" in keys and row["expire_timer"] is not None)
+            else None,
+            expires_at=float(row["expires_at"])
+            if ("expires_at" in keys and row["expires_at"] is not None)
+            else None,
         )
 
     def get_message(self, pk: int) -> NormalizedMessage | None:

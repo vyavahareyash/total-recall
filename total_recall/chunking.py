@@ -217,6 +217,9 @@ class BurstChunker:
         content = "\n".join(content_lines)
         episode_id = f"ep_{chat_jid}_{first_msg.pk}_{last_msg.pk}_{chunk_idx}"
 
+        exp_times = [m.expires_at for m in messages if m.expires_at is not None]
+        min_expires_at = min(exp_times) if exp_times else None
+
         return ConversationalFlowEpisode(
             episode_id=episode_id,
             chat_jid=chat_jid,
@@ -230,7 +233,97 @@ class BurstChunker:
             cross_burst_quotes=tuple(cross_burst_quotes),
             header=header,
             content=content,
+            min_expires_at=min_expires_at,
         )
+
+
+def rebuild_episode_without_message(
+    episode: ConversationalFlowEpisode, message_pk: int
+) -> ConversationalFlowEpisode | None:
+    """Reconstruct an episode after message revocation, redacting sensitive quotes and updating headers."""
+    remaining_messages = [m for m in episode.messages if m.pk != message_pk]
+    if not remaining_messages:
+        return None
+
+    first_msg = remaining_messages[0]
+    last_msg = remaining_messages[-1]
+
+    # Rebuild participants list
+    seen_participants: dict[str, None] = {}
+    for m in remaining_messages:
+        seen_participants[m.sender_name] = None
+    participants = tuple(seen_participants.keys())
+
+    # Filter cross-burst quotes: purge references to the revoked message
+    remaining_quotes = [
+        q
+        for q in episode.cross_burst_quotes
+        if q.parent_pk != message_pk and q.child_pk != message_pk
+    ]
+
+    # Rebuild Metadata Header
+    header_parts = [
+        f"[Chat: {episode.chat_name} ({episode.chat_jid})]",
+        f"[Date: {first_msg.iso_date} - {last_msg.iso_date}]",
+        f"[Participants: {', '.join(participants)}]",
+    ]
+
+    if remaining_quotes:
+        quote_snippets = [
+            f"In reply to msg_id {q.parent_pk} from {q.parent_sender_name}: '{truncate_text(q.parent_text)}'"
+            for q in remaining_quotes
+        ]
+        header_parts.append(f"[Cross-Burst Quotes: {'; '.join(quote_snippets)}]")
+
+    header = "Header: " + " | ".join(header_parts)
+
+    # Rebuild Formatted Content
+    chunk_pks = {m.pk for m in remaining_messages}
+    cb_map = {q.child_pk: q for q in remaining_quotes}
+    content_lines: list[str] = []
+
+    for m in remaining_messages:
+        if m.pk in cb_map:
+            cb = cb_map[m.pk]
+            snip = truncate_text(cb.parent_text)
+            turn = (
+                f"[{m.iso_date}] {m.sender_name} (in reply to earlier msg_id {cb.parent_pk} "
+                f"from {cb.parent_sender_name}: '{snip}'): {m.text} (msg_id: {m.pk})"
+            )
+        elif m.parent_pk == message_pk:
+            turn = (
+                f"[{m.iso_date}] {m.sender_name} (in reply to retracted msg_id {message_pk}): "
+                f"{m.text} (msg_id: {m.pk})"
+            )
+        elif m.parent_pk is not None and m.parent_pk in chunk_pks:
+            turn = (
+                f"[{m.iso_date}] {m.sender_name} (reply to #{m.parent_pk}): "
+                f"{m.text} (msg_id: {m.pk})"
+            )
+        else:
+            turn = f"[{m.iso_date}] {m.sender_name}: {m.text} (msg_id: {m.pk})"
+        content_lines.append(turn)
+
+    content = "\n".join(content_lines)
+
+    exp_times = [m.expires_at for m in remaining_messages if m.expires_at is not None]
+    min_expires_at = min(exp_times) if exp_times else None
+
+    return ConversationalFlowEpisode(
+        episode_id=episode.episode_id,
+        chat_jid=episode.chat_jid,
+        chat_name=episode.chat_name,
+        start_timestamp=first_msg.unix_timestamp,
+        end_timestamp=last_msg.unix_timestamp,
+        start_iso=first_msg.iso_date,
+        end_iso=last_msg.iso_date,
+        participants=participants,
+        messages=tuple(remaining_messages),
+        cross_burst_quotes=tuple(remaining_quotes),
+        header=header,
+        content=content,
+        min_expires_at=min_expires_at,
+    )
 
 
 def chunk_into_episodes(

@@ -136,6 +136,8 @@ class IngestionReport:
     ingested_chats_count: int = 0
     ingested_messages_count: int = 0
     episodes_generated_count: int = 0
+    revocations_purged_count: int = 0
+    expired_purged_count: int = 0
 
     def format_report(self) -> str:
         """Generate human-readable ingestion & discovery report."""
@@ -150,9 +152,20 @@ class IngestionReport:
             f"Active Workspaces: {', '.join(self.active_workspaces) if self.active_workspaces else '(none)'}",
             f"Ingested Messages: {self.ingested_messages_count} across {self.ingested_chats_count} chats",
             f"Conversational Flow Episodes: {self.episodes_generated_count}",
-            "------------------------------------------------------------",
-            "Discovered Chats Inventory:",
         ]
+        if self.revocations_purged_count > 0:
+            lines.append(f"Revoked Messages Purged: {self.revocations_purged_count}")
+        if self.expired_purged_count > 0:
+            lines.append(
+                f"Expired Ephemeral Messages Purged: {self.expired_purged_count}"
+            )
+
+        lines.extend(
+            [
+                "------------------------------------------------------------",
+                "Discovered Chats Inventory:",
+            ]
+        )
 
         if not self.chats:
             lines.append("  (No chat sessions found in storage)")
