@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from total_recall.dag import ReplyDAG
 from total_recall.discovery import WhatsAppContainers, discover_whatsapp_containers
 from total_recall.ingestion import IngestionEngine
 from total_recall.search import SearchIndex
@@ -11,6 +12,7 @@ __all__ = [
     "IngestionEngine",
     "IngestionStats",
     "NormalizedMessage",
+    "ReplyDAG",
     "SearchIndex",
     "SearchResult",
     "WhatsAppContainers",

@@ -16,6 +16,7 @@ class NormalizedMessage:
     unix_timestamp: float
     iso_date: str
     text: str
+    parent_pk: int | None = None
 
 
 @dataclass(frozen=True)
@@ -32,4 +33,5 @@ class SearchResult:
 class IngestionStats:
     total_sessions_scanned: int
     direct_sessions_ingested: int
-    messages_ingested: int
+    group_sessions_ingested: int = 0
+    messages_ingested: int = 0
