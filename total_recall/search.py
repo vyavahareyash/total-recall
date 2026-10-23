@@ -17,7 +17,7 @@ class SearchIndex:
         self._init_schema()
 
     def _init_schema(self) -> None:
-        """Create normalized messages table and FTS5 virtual table."""
+        """Create normalized messages table and FTS5 virtual table with parent_pk."""
         cur = self.con.cursor()
         cur.executescript(
             """
@@ -32,7 +32,8 @@ class SearchIndex:
                 apple_date REAL,
                 unix_timestamp REAL,
                 iso_date TEXT,
-                text TEXT
+                text TEXT,
+                parent_pk INTEGER
             );
 
             CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts USING fts5(
@@ -44,6 +45,13 @@ class SearchIndex:
             );
             """
         )
+
+        # Migrate existing schema if parent_pk column is missing
+        cur.execute("PRAGMA table_info(messages)")
+        columns = [row["name"] for row in cur.fetchall()]
+        if "parent_pk" not in columns:
+            cur.execute("ALTER TABLE messages ADD COLUMN parent_pk INTEGER")
+
         self.con.commit()
 
     def index_messages(self, messages: list[NormalizedMessage]) -> int:
@@ -59,8 +67,8 @@ class SearchIndex:
                 INSERT OR REPLACE INTO messages (
                     pk, chat_session_id, chat_jid, stanza_id, is_from_me,
                     sender_name, sender_jid, apple_date, unix_timestamp,
-                    iso_date, text
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    iso_date, text, parent_pk
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     msg.pk,
@@ -74,6 +82,7 @@ class SearchIndex:
                     msg.unix_timestamp,
                     msg.iso_date,
                     msg.text,
+                    msg.parent_pk,
                 ),
             )
 
@@ -137,6 +146,45 @@ class SearchIndex:
                 )
             )
         return results
+
+    @staticmethod
+    def _row_to_normalized_message(row: sqlite3.Row) -> NormalizedMessage:
+        return NormalizedMessage(
+            pk=int(row["pk"]),
+            chat_session_id=int(row["chat_session_id"]),
+            chat_jid=str(row["chat_jid"]),
+            stanza_id=str(row["stanza_id"] or ""),
+            is_from_me=bool(row["is_from_me"]),
+            sender_name=str(row["sender_name"]),
+            sender_jid=str(row["sender_jid"]),
+            apple_date=float(row["apple_date"]),
+            unix_timestamp=float(row["unix_timestamp"]),
+            iso_date=str(row["iso_date"]),
+            text=str(row["text"]),
+            parent_pk=int(row["parent_pk"]) if row["parent_pk"] is not None else None,
+        )
+
+    def get_message(self, pk: int) -> NormalizedMessage | None:
+        """Fetch a single message by PK."""
+        cur = self.con.cursor()
+        cur.execute("SELECT * FROM messages WHERE pk = ?", (pk,))
+        row = cur.fetchone()
+        return self._row_to_normalized_message(row) if row else None
+
+    def get_messages_for_chat(self, chat_jid: str) -> list[NormalizedMessage]:
+        """Fetch all messages for a specific chat JID ordered chronologically."""
+        cur = self.con.cursor()
+        cur.execute(
+            "SELECT * FROM messages WHERE chat_jid = ? ORDER BY unix_timestamp ASC, pk ASC",
+            (chat_jid,),
+        )
+        return [self._row_to_normalized_message(row) for row in cur.fetchall()]
+
+    def get_all_messages(self) -> list[NormalizedMessage]:
+        """Fetch all indexed messages ordered chronologically."""
+        cur = self.con.cursor()
+        cur.execute("SELECT * FROM messages ORDER BY unix_timestamp ASC, pk ASC")
+        return [self._row_to_normalized_message(row) for row in cur.fetchall()]
 
     def close(self) -> None:
         """Close database connection."""
