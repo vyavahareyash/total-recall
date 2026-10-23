@@ -10,6 +10,13 @@ from total_recall.chunking import (
 )
 from total_recall.dag import ReplyDAG
 from total_recall.discovery import WhatsAppContainers, discover_whatsapp_containers
+from total_recall.embeddings import (
+    DeterministicMockEmbeddingProvider,
+    EmbeddingProvider,
+    OllamaEmbeddingProvider,
+    ONNXEmbeddingProvider,
+    get_embedding_provider,
+)
 from total_recall.ingestion import IngestionEngine
 from total_recall.search import SearchIndex
 from total_recall.types import (
@@ -17,6 +24,7 @@ from total_recall.types import (
     CrossBurstQuoteContext,
     IngestionStats,
     NormalizedMessage,
+    PurgeReport,
     ScoredEpisode,
     SearchResult,
 )
@@ -28,11 +36,16 @@ __all__ = [
     "BurstChunker",
     "ConversationalFlowEpisode",
     "CrossBurstQuoteContext",
+    "DeterministicMockEmbeddingProvider",
     "DiscoveredChat",
+    "EmbeddingProvider",
     "IngestionEngine",
     "IngestionReport",
     "IngestionStats",
     "NormalizedMessage",
+    "OllamaEmbeddingProvider",
+    "ONNXEmbeddingProvider",
+    "PurgeReport",
     "ReplyDAG",
     "ScoredEpisode",
     "SearchIndex",
@@ -41,4 +54,5 @@ __all__ = [
     "WhatsAppContainers",
     "chunk_into_episodes",
     "discover_whatsapp_containers",
+    "get_embedding_provider",
 ]
