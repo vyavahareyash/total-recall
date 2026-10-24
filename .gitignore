@@ -37,6 +37,10 @@ bin/
 out/
 target/
 /apps/TotalRecallBar/TotalRecallBar
+/apps/TotalRecallBar/TotalRecallBar*
+/apps/TotalRecallBar/*.app
+/apps/TotalRecallBar/*.zip
+/apps/TotalRecallBar/*.dmg
 
 # Package dependencies
 node_modules/

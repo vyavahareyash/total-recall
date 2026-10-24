@@ -46,10 +46,209 @@ The system is engineered around four deep modules with minimal interfaces and hi
 
 ## Prerequisites
 
-* **Operating System:** macOS (Apple Silicon or Intel).
+* **Operating System:** macOS 12.0+ (Apple Silicon or Intel).
 * **WhatsApp Desktop:** Official macOS desktop application (Catalyst build) installed and active.
-* **Permissions:** macOS Full Disk Access granted to Total Recall to read the shared App Group container.
-* **Local Inference:** [Ollama](https://ollama.com/) or `llama.cpp` running locally for dense vector embeddings (`nomic-embed-text`) and summarization models (`Qwen-2.5-7B` / `Llama-3.2-3B`).
+* **Full Disk Access:** Terminal / Python / IDE granted Full Disk Access in macOS to read WhatsApp's App Group container.
+* **Python Runtime:** Python 3.13+ (if installing via CLI/uv/pip).
+* **Local Inference (Optional):** [Ollama](https://ollama.com/) running locally for vector embeddings (`nomic-embed-text`) and summarization models (`qwen2.5:7b` / `llama3.2:3b`).
+
+### Granting macOS Full Disk Access
+
+WhatsApp Catalyst database files are located in `~/Library/Group Containers/group.net.whatsapp.WhatsApp.shared/ChatStorage.sqlite`. macOS requires Full Disk Access to read this container:
+
+1. Open **System Settings** > **Privacy & Security** > **Full Disk Access**.
+2. Unlock with your password or Touch ID.
+3. Toggle ON (or click **+** to add) your terminal emulator (**Terminal**, **iTerm2**, or **Ghostty**), **TotalRecallBar.app**, and your IDE (e.g. **Cursor**, **VS Code**).
+
+---
+
+## Installation
+
+### Option 1: Standalone macOS Menu Bar App (Recommended for GUI Users)
+
+1. Download the latest `TotalRecallBar-macos.dmg` from [GitHub Releases](https://github.com/vyavahareyash/total-recall/releases).
+2. Open `TotalRecallBar-macos.dmg` and drag `TotalRecallBar.app` into `/Applications`.
+3. Launch `TotalRecallBar.app`. An icon appears in your menu bar.
+
+### Option 2: Python CLI Installation via `uv` or `pipx`
+
+Install the `total-recall` CLI globally:
+
+```bash
+# Using uv (recommended)
+uv tool install "total-recall[vec]"
+
+# Or using pipx
+pipx install "total-recall[vec]"
+
+# Or inside an existing virtual environment
+pip install "total-recall[vec]"
+```
+
+> [!NOTE]
+> The `[vec]` extra installs `sqlite-vec>=0.1.6` for local SIMD-accelerated KNN vector search. Omit `[vec]` for a pure standard-library zero-dependency installation (BM25 lexical search only).
+
+### Option 3: Direct MCP Server Install (for Claude Desktop & Cursor)
+
+`TotalRecallBar.app` is **not** required to use the MCP server. MCP runs completely headless:
+
+> [!TIP]
+> You only need `uvx` (or the Python CLI) and a one-time message ingestion (`total-recall vault approve <jid>` followed by `total-recall ingest`). If invoking directly from Claude Desktop / Cursor, grant Full Disk Access to that application.
+>
+> **Where does it pull from?**
+> * **PyPI (Standard):** `uvx --from "total-recall[vec]"` downloads from PyPI.
+> * **Direct from GitHub (Pre-release / bleeding-edge):** Replace `"total-recall[vec]"` with `"git+https://github.com/vyavahareyash/total-recall.git"`.
+> * **Local Machine:** Use `"command": "total-recall"` if already installed locally via `uv tool install` or `pipx`.
+
+Configure Total Recall directly in your AI client without manual virtualenv management using `uvx`:
+
+#### Claude Desktop
+
+Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
+
+```json
+{
+  "mcpServers": {
+    "total-recall": {
+      "command": "uvx",
+      "args": ["--from", "total-recall[vec]", "total-recall", "mcp"]
+    }
+  }
+}
+```
+
+*(Or use `"command": "total-recall"` if already installed globally via `uv tool install`)*
+
+#### Cursor & Windsurf
+
+In Cursor settings (`Settings > Features > MCP`) or `.cursor/mcp.json`:
+
+```json
+{
+  "mcpServers": {
+    "total-recall": {
+      "command": "uvx",
+      "args": ["--from", "total-recall[vec]", "total-recall", "mcp"]
+    }
+  }
+}
+```
+
+#### Claude Code (CLI)
+
+```bash
+claude mcp add total-recall -- uvx --from "total-recall[vec]" total-recall mcp
+```
+
+### Option 4: From Source
+
+```bash
+git clone https://github.com/vyavahareyash/total-recall.git
+cd total-recall
+
+# Install dependencies using uv
+uv sync --extra vec
+
+# Or build the native menu bar DMG installer
+make -C apps/TotalRecallBar dmg
+```
+
+---
+
+## Quick Start
+
+### 1. Configure the Opt-In Chat Vault
+
+Total Recall enforces a strict privacy perimeter. You can approve all chats at once or pick specific contacts:
+
+```bash
+# Quick approve all discovered chats (Recommended for instant MCP use)
+total-recall vault approve --all
+
+# Or approve a specific contact or group JID
+total-recall vault approve "123456789@s.whatsapp.net"
+
+# Verify active approved chats
+total-recall vault list-approved
+```
+
+### 2. Ingest Messages
+
+Ingest messages from the local WhatsApp Catalyst storage into the local encrypted SQLite index:
+
+```bash
+# Ingest approved 1:1 chats
+total-recall ingest
+
+# Include approved group chats with reply DAG attribution
+total-recall ingest --include-groups
+
+# Or bypass vault checks entirely and ingest all chats directly:
+total-recall ingest --all --include-groups
+```
+
+### 3. Search Conversations
+
+Perform hybrid BM25 + vector search fused with Reciprocal Rank Fusion (RRF):
+
+```bash
+total-recall search "contract renewal deadline" --k 5
+```
+
+### 4. Launch Desktop Menu Bar & Local UI
+
+Start the local UI server and native menu bar companion (`http://127.0.0.1:8765`):
+
+```bash
+total-recall ui
+```
+
+### 5. Connect as an MCP Server
+
+Total Recall provides a Model Context Protocol (MCP) server for Claude Desktop, Cursor, and local agent orchestrators.
+
+#### Claude Desktop Integration
+
+Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
+
+```json
+{
+  "mcpServers": {
+    "total-recall": {
+      "command": "total-recall",
+      "args": ["mcp"]
+    }
+  }
+}
+```
+
+#### Exposed MCP Tools
+
+Once connected, your AI assistant gains access to three privacy-scoped tools:
+* `search_messages`: Hybrid lexical + vector search over approved chats with RRF ranking.
+* `get_thread_context`: Reconstruct reply DAGs and episode context around specific message IDs.
+* `stage_reply_draft`: Create tone-matched drafts staged in the local Review Box (no autonomous sending).
+
+#### SSE Transport for Web / Network Agents
+
+```bash
+# Starts SSE daemon with bearer bridge-token authentication
+total-recall mcp --transport sse --port 8766
+```
+
+---
+
+## Release Pipeline
+
+Total Recall includes an automated GitHub Actions release workflow (`.github/workflows/release.yml`):
+
+* **Trigger:** Push a semantic tag (e.g. `git tag v0.1.0 && git push origin v0.1.0`) or run manually via `workflow_dispatch`.
+* **Quality Gate:** Automated linting (`ruff`), format validation, and matrix test execution on Ubuntu & macOS.
+* **Build Outputs:**
+  * Universal macOS DMG installer (`TotalRecallBar-macos.dmg`) supporting both Apple Silicon (`arm64`) and Intel (`x86_64`).
+  * Python Wheel (`.whl`) and Source Distribution (`.tar.gz`).
+  * Cryptographic checksum ledger (`SHA256SUMS.txt`).
+* **Publishing:** Creates GitHub Releases with changelogs and optionally publishes packages to PyPI via trusted publishing.
 
 ---
 
