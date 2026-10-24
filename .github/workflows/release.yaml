@@ -156,7 +156,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.release-tag.outputs.tag }}
-          name: Total Recall ${{ steps.release-tag.outputs.tag }}
+          name: WhatsApp Total Recall ${{ steps.release-tag.outputs.tag }}
           files: release-assets/*
           generate_release_notes: true
           draft: ${{ github.event.inputs.draft || false }}
