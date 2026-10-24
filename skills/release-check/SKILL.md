@@ -19,7 +19,7 @@ This automatically verifies:
 1. Version alignment across `pyproject.toml`, `apps/WhatsAppTotalRecallBar/Info.plist`, and `whatsapp_total_recall/mcp.py`.
 2. Package README pointer: `pyproject.toml` `readme = "README.pypi.md"`.
 3. PyPI README hygiene: zero relative links (which 404 on PyPI) and inclusion in sdist targets.
-4. PyPI Trusted Publishing alignment: `.github/workflows/release.yaml` with `environment: pypi` and `id-token: write`.
+4. PyPI Trusted Publishing alignment: `.github/workflows/release.yml` with `environment: pypi` and `id-token: write`.
 
 ---
 
@@ -102,7 +102,7 @@ git tag -a v<VERSION> -m "Release v<VERSION>"
 git push origin v<VERSION>
 ```
 
-Pusing the `v*` tag triggers `.github/workflows/release.yaml`:
+Pusing the `v*` tag triggers `.github/workflows/release.yml`:
 - Runs tests on Ubuntu & macOS.
 - Compiles universal macOS `.dmg`.
 - Publishes GitHub Release with checksums.
