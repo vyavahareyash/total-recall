@@ -21,6 +21,7 @@ from total_recall.drafter import (
 )
 from total_recall.search import SearchIndex
 from total_recall.summarizer import DeterministicMockLLMAdapter, LLMAdapter
+from total_recall.vault import VaultConfig
 
 DEFAULT_BRIDGE_TOKEN_PATH = Path(".bridge-token")
 MCP_PROTOCOL_VERSION = "2024-11-05"
@@ -75,6 +76,7 @@ class MCPServer:
         token_path: Path | str | None = None,
         review_box_path: Path | str | None = None,
         llm_adapter: LLMAdapter | None = None,
+        vault_path: Path | str | None = None,
     ):
         self.db_path = Path(db_path)
         self.review_box_path = (
@@ -82,6 +84,15 @@ class MCPServer:
         )
         self.token = token or load_or_create_bridge_token(token_path)
         self.llm_adapter = llm_adapter or DeterministicMockLLMAdapter()
+        self.vault_path = Path(vault_path) if vault_path else None
+
+    def _get_vault_config(self) -> VaultConfig | None:
+        if self.vault_path and self.vault_path.exists():
+            try:
+                return VaultConfig.load(self.vault_path)
+            except Exception:
+                pass
+        return None
 
     def get_tool_definitions(self) -> list[dict[str, Any]]:
         """Return registered tool schemas. Autonomous send and presence tracking are stripped/omitted."""
@@ -233,7 +244,11 @@ class MCPServer:
             }
 
         with SearchIndex(self.db_path) as index:
-            results = index.search(query=query, limit=limit)
+            results = index.search(query=query, limit=max(limit * 3, 30))
+            vault = self._get_vault_config()
+            if vault is not None:
+                results = [r for r in results if vault.is_chat_approved(r.chat_jid)]
+            results = results[:limit]
             data = [
                 {
                     "message_pk": r.message_pk,
@@ -284,6 +299,22 @@ class MCPServer:
                     "isError": True,
                 }
 
+            vault = self._get_vault_config()
+            if vault is not None and not vault.is_chat_approved(target_msg.chat_jid):
+                return {
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": json.dumps(
+                                {
+                                    "error": f"Chat '{target_msg.chat_jid}' is not approved in Opt-In Chat Vault."
+                                }
+                            ),
+                        }
+                    ],
+                    "isError": True,
+                }
+
             chat_messages = index.get_messages_for_chat(target_msg.chat_jid)
             dag = ReplyDAG(chat_messages)
             root = dag.get_root_for(message_id)
@@ -325,6 +356,10 @@ class MCPServer:
             raise ValueError("Parameter 'chat_id' is required.")
         if not intent_points or not any(p.strip() for p in intent_points):
             raise ValueError("At least one intent point is required.")
+
+        vault = self._get_vault_config()
+        if vault is not None and not vault.is_chat_approved(chat_id):
+            raise ValueError(f"Chat '{chat_id}' is not approved in Opt-In Chat Vault.")
 
         clean_intents = [p.strip() for p in intent_points if p.strip()]
 
