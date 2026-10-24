@@ -12,13 +12,13 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         if let button = statusItem.button {
-            if let img = NSImage(systemSymbolName: "bubble.left.and.bubble.right.fill", accessibilityDescription: "Total Recall") {
+            if let img = NSImage(systemSymbolName: "bubble.left.and.bubble.right.fill", accessibilityDescription: "WhatsApp Total Recall") {
                 img.isTemplate = true
                 button.image = img
             } else {
-                button.title = "TR"
+                button.title = "WTR"
             }
-            button.toolTip = "Total Recall: Local Conversational Intelligence"
+            button.toolTip = "WhatsApp Total Recall: Local Conversational Intelligence"
             button.action = #selector(statusItemClicked(_:))
             button.sendAction(on: [.leftMouseUp, .rightMouseUp])
             button.target = self

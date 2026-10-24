@@ -1,15 +1,15 @@
 ---
-name: total-recall
-description: Query local WhatsApp history, reconstruct reply DAG thread contexts, and synthesize intent-constrained reply drafts via Total Recall's local MCP server.
+name: whatsapp-total-recall
+description: Query local WhatsApp history, reconstruct reply DAG thread contexts, and synthesize intent-constrained reply drafts via WhatsApp Total Recall's local MCP server.
 ---
 
-# Total Recall MCP Skill
+# WhatsApp Total Recall MCP Skill
 
-Guide for AI agents (Claude, Cursor, Antigravity) interacting with the local-first Total Recall Model Context Protocol (MCP) server.
+Guide for AI agents (Claude, Cursor, Antigravity) interacting with the local-first WhatsApp Total Recall Model Context Protocol (MCP) server.
 
 ## Core Capabilities
 
-Total Recall exposes three local read-only and staging tools:
+WhatsApp Total Recall exposes three local read-only and staging tools:
 1. `search_messages(query, limit)`: Fast FTS5 BM25 lexical search over indexed WhatsApp chats.
 2. `get_thread_context(message_id)`: Reconstructs the full parent-child reply DAG, resolving thread root, branch participants, and conversation hierarchy.
 3. `stage_reply_draft(chat_id, intent_points)`: Synthesizes a response matching the user's historical tone (`ZISFROMME = 1`) strictly bounded to user intent bullet points, and stages it in the local review box.

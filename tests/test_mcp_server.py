@@ -229,7 +229,7 @@ def test_stdio_handshake_and_ping(tmp_path: Path):
     # Initialize check
     assert outputs[0]["id"] == 1
     assert outputs[0]["result"]["protocolVersion"] == "2024-11-05"
-    assert outputs[0]["result"]["serverInfo"]["name"] == "total-recall-mcp"
+    assert outputs[0]["result"]["serverInfo"]["name"] == "whatsapp-total-recall-mcp"
 
     # Ping check
     assert outputs[1]["id"] == 2

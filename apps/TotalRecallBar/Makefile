@@ -37,7 +37,7 @@ dmg: universal app
 	mkdir -p $(DMG_STAGING)
 	cp -R $(APP_NAME) $(DMG_STAGING)/
 	ln -s /Applications $(DMG_STAGING)/Applications
-	hdiutil create -srcfolder $(DMG_STAGING) -volname "Total Recall" -ov -format UDZO $(DMG_NAME)
+	hdiutil create -srcfolder $(DMG_STAGING) -volname "WhatsApp Total Recall" -ov -format UDZO $(DMG_NAME)
 	rm -rf $(DMG_STAGING)
 	@echo "Created $(DMG_NAME)"
 	@shasum -a 256 $(DMG_NAME)

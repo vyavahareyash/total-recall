@@ -43,8 +43,8 @@ DEFAULT_VAULT_PATH = Path("vault_config.json")
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        prog="total-recall",
-        description="Total Recall: Privacy-First WhatsApp Conversational Intelligence",
+        prog="whatsapp-total-recall",
+        description="WhatsApp Total Recall: Privacy-First WhatsApp Conversational Intelligence",
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
 
@@ -958,7 +958,7 @@ def run_search(args: argparse.Namespace) -> int:
     db_path: Path = args.db
     if not db_path.exists():
         print(
-            f"Error: Index database '{db_path}' does not exist. Run 'total-recall ingest' first.",
+            f"Error: Index database '{db_path}' does not exist. Run 'whatsapp-total-recall ingest' first.",
             file=sys.stderr,
         )
         return 1
@@ -1071,7 +1071,7 @@ def run_thread(args: argparse.Namespace) -> int:
         else:
             print(
                 "Error: No index database or WhatsApp containers found. "
-                "Run 'total-recall ingest' or specify --source.",
+                "Run 'whatsapp-total-recall ingest' or specify --source.",
                 file=sys.stderr,
             )
             return 1
@@ -1250,7 +1250,7 @@ def run_episodes(args: argparse.Namespace) -> int:
     db_path: Path = args.db
     if not db_path.exists():
         print(
-            f"Error: Database '{db_path}' does not exist. Run 'total-recall ingest' first.",
+            f"Error: Database '{db_path}' does not exist. Run 'whatsapp-total-recall ingest' first.",
             file=sys.stderr,
         )
         return 1

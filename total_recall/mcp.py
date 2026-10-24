@@ -58,7 +58,11 @@ def load_or_create_bridge_token(path: Path | str | None = None) -> str:
     except OSError:
         # Fallback if spawned in read-only cwd (e.g. root '/' by desktop GUI clients)
         try:
-            home_token = Path.home() / ".total-recall" / ".bridge-token"
+            home_token = Path.home() / ".whatsapp-total-recall" / ".bridge-token"
+            if not home_token.exists():
+                fallback_old = Path.home() / ".total-recall" / ".bridge-token"
+                if fallback_old.exists():
+                    home_token = fallback_old
             if home_token.resolve() != token_path.resolve():
                 return load_or_create_bridge_token(home_token)
         except OSError:
@@ -460,8 +464,8 @@ class MCPServer:
                     "supportedVersions": ["2024-11-05", "2026-07-28"],
                     "capabilities": {"tools": {}},
                     "serverInfo": {
-                        "name": "total-recall-mcp",
-                        "version": "0.1.0",
+                        "name": "whatsapp-total-recall-mcp",
+                        "version": "0.1.1",
                     },
                 },
             }
@@ -585,7 +589,7 @@ class MCPHTTPRequestHandler(http.server.BaseHTTPRequestHandler):
         self.close_connection = True
         self.send_response(401)
         self.send_header("Content-Type", "application/json")
-        self.send_header("WWW-Authenticate", 'Bearer realm="total-recall-mcp"')
+        self.send_header("WWW-Authenticate", 'Bearer realm="whatsapp-total-recall-mcp"')
         self.send_header("Connection", "close")
         self.end_headers()
         err_payload = {

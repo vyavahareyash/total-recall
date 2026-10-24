@@ -170,7 +170,7 @@ jobs:
     runs-on: ubuntu-latest
     environment:
       name: pypi
-      url: https://pypi.org/p/total-recall
+      url: https://pypi.org/p/whatsapp-total-recall
     permissions:
       id-token: write
     if: startsWith(github.ref, 'refs/tags/v')
