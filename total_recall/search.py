@@ -958,6 +958,23 @@ class SearchIndex:
         )
         return [self._row_to_normalized_message(row) for row in cur.fetchall()]
 
+    def get_recent_outgoing_messages(
+        self, chat_jid: str, limit: int = 10
+    ) -> list[NormalizedMessage]:
+        """Fetch recent outgoing user messages (is_from_me = 1) for chat in chronological order."""
+        cur = self.con.cursor()
+        cur.execute(
+            """
+            SELECT * FROM messages
+            WHERE chat_jid = ? AND is_from_me = 1
+            ORDER BY unix_timestamp DESC, pk DESC
+            LIMIT ?
+            """,
+            (chat_jid, limit),
+        )
+        rows = cur.fetchall()
+        return [self._row_to_normalized_message(row) for row in reversed(rows)]
+
     def get_all_messages(self) -> list[NormalizedMessage]:
         """Fetch all indexed messages ordered chronologically."""
         cur = self.con.cursor()
