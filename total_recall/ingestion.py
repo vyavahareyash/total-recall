@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 import sqlite3
+from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -453,20 +454,23 @@ class IngestionEngine:
         # 3. If SearchIndex provided: cross-reference all indexed PKs to detect deleted/cleared messages
         if index is not None:
             indexed_pks = index.get_all_message_pks()
-            if indexed_pks:
-                cur.execute(
-                    """
-                    SELECT Z_PK FROM ZWAMESSAGE
-                    WHERE ZTEXT IS NOT NULL
-                      AND length(trim(ZTEXT)) > 0
-                      AND ZTEXT != 'This message was deleted'
-                      AND ZTEXT != 'ProtocolMessage_REVOKE'
-                    """
-                )
-                valid_source_pks = {int(row["Z_PK"]) for row in cur.fetchall()}
-                for pk in indexed_pks:
-                    if pk not in valid_source_pks:
-                        revoked_pks.add(pk)
+            if not indexed_pks:
+                con.close()
+                return []
+            cur.execute(
+                """
+                SELECT Z_PK FROM ZWAMESSAGE
+                WHERE ZTEXT IS NOT NULL
+                  AND length(trim(ZTEXT)) > 0
+                  AND ZTEXT != 'This message was deleted'
+                  AND ZTEXT != 'ProtocolMessage_REVOKE'
+                """
+            )
+            valid_source_pks = {int(row["Z_PK"]) for row in cur.fetchall()}
+            for pk in indexed_pks:
+                if pk not in valid_source_pks:
+                    revoked_pks.add(pk)
+            revoked_pks = {pk for pk in revoked_pks if pk in indexed_pks}
 
         con.close()
         return sorted(revoked_pks)
@@ -476,11 +480,13 @@ class IngestionEngine:
         index: SearchIndex,
         current_timestamp: float | None = None,
         embedder: EmbeddingProvider | None = None,
+        progress_callback: Callable[[int, int], None] | None = None,
     ) -> tuple[list[PurgeReport], list[PurgeReport]]:
         """Detect and purge both revoked messages and expired disappearing messages."""
         revoked_pks = self.detect_revocation_events(index=index)
         revocation_reports: list[PurgeReport] = []
-        for pk in revoked_pks:
+        total = len(revoked_pks)
+        for idx, pk in enumerate(revoked_pks, 1):
             report = index.purge(pk, embedder=embedder)
             if (
                 report.raw_messages_purged > 0
@@ -488,6 +494,8 @@ class IngestionEngine:
                 or report.episodes_deleted > 0
             ):
                 revocation_reports.append(report)
+            if progress_callback:
+                progress_callback(idx, total)
 
         expired_reports = index.purge_expired(
             current_timestamp=current_timestamp, embedder=embedder
