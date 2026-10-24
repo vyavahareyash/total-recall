@@ -8,6 +8,7 @@ from total_recall.chunking import (
     BurstChunker,
     chunk_into_episodes,
 )
+from total_recall.config import DEFAULT_CONFIG_PATH, AppConfig
 from total_recall.dag import ReplyDAG
 from total_recall.discovery import WhatsAppContainers, discover_whatsapp_containers
 from total_recall.drafter import (
@@ -59,8 +60,10 @@ from total_recall.types import (
 from total_recall.vault import DiscoveredChat, IngestionReport, VaultConfig
 
 __all__ = [
+    "DEFAULT_CONFIG_PATH",
     "DIRECT_BURST_GAP_SECONDS",
     "GROUP_BURST_GAP_SECONDS",
+    "AppConfig",
     "AutonomousSendingProhibitedError",
     "BurstChunker",
     "Citation",

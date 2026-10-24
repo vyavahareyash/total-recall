@@ -4,7 +4,12 @@ import argparse
 import sys
 from pathlib import Path
 
-from total_recall.chunking import chunk_into_episodes
+from total_recall.chunking import (
+    DIRECT_BURST_GAP_SECONDS,
+    GROUP_BURST_GAP_SECONDS,
+    chunk_into_episodes,
+)
+from total_recall.config import DEFAULT_CONFIG_PATH, AppConfig
 from total_recall.dag import ReplyDAG
 from total_recall.discovery import discover_whatsapp_containers
 from total_recall.drafter import (
@@ -100,6 +105,25 @@ def build_parser() -> argparse.ArgumentParser:
         default="nomic-embed-text",
         help="Embedding model name (default: nomic-embed-text)",
     )
+    ingest_parser.add_argument(
+        "--host",
+        "--ollama-host",
+        type=str,
+        default=None,
+        help="Ollama daemon HTTP host (default: http://127.0.0.1:11434)",
+    )
+    ingest_parser.add_argument(
+        "--group-gap",
+        type=float,
+        default=None,
+        help="Inactivity gap threshold for group chats in minutes (default: 15.0)",
+    )
+    ingest_parser.add_argument(
+        "--direct-gap",
+        type=float,
+        default=None,
+        help="Inactivity gap threshold for 1:1 direct chats in minutes (default: 45.0)",
+    )
 
     # 2. Search subcommand
     search_parser = subparsers.add_parser(
@@ -146,6 +170,13 @@ def build_parser() -> argparse.ArgumentParser:
         type=int,
         default=10,
         help="Maximum matching results to return (default: 10)",
+    )
+    search_parser.add_argument(
+        "--host",
+        "--ollama-host",
+        type=str,
+        default=None,
+        help="Ollama daemon HTTP host (default: http://127.0.0.1:11434)",
     )
 
     # 3. Thread subcommand
@@ -293,6 +324,13 @@ def build_parser() -> argparse.ArgumentParser:
         default="auto",
         help="Embedding provider for semantic query (default: auto)",
     )
+    episodes_parser.add_argument(
+        "--host",
+        "--ollama-host",
+        type=str,
+        default=None,
+        help="Ollama daemon HTTP host (default: http://127.0.0.1:11434)",
+    )
 
     # 6. Purge subcommand
     purge_parser = subparsers.add_parser(
@@ -341,6 +379,13 @@ def build_parser() -> argparse.ArgumentParser:
         choices=["auto", "ollama", "mock"],
         default="auto",
         help="Embedding provider for recomputing parent episode vectors (default: auto)",
+    )
+    purge_parser.add_argument(
+        "--host",
+        "--ollama-host",
+        type=str,
+        default=None,
+        help="Ollama daemon HTTP host (default: http://127.0.0.1:11434)",
     )
 
     # 7. Summarize subcommand
@@ -407,6 +452,13 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         default=False,
         help="Bypass prefix NLI verification and display raw completion",
+    )
+    summarize_parser.add_argument(
+        "--host",
+        "--ollama-host",
+        type=str,
+        default=None,
+        help="Ollama daemon HTTP host (default: http://127.0.0.1:11434)",
     )
 
     # 8. Draft subcommand
@@ -486,6 +538,75 @@ def build_parser() -> argparse.ArgumentParser:
         type=str,
         default=None,
         help="Reject a staged draft by ID",
+    )
+    draft_parser.add_argument(
+        "--host",
+        "--ollama-host",
+        type=str,
+        default=None,
+        help="Ollama daemon HTTP host (default: http://127.0.0.1:11434)",
+    )
+
+    # 9. Config subcommand
+    config_parser = subparsers.add_parser(
+        "config",
+        help="View and manage persistent user configuration and preferences",
+    )
+    config_parser.add_argument(
+        "action",
+        choices=["show", "set", "init"],
+        nargs="?",
+        default="show",
+        help="Configuration action: show, set, or init (default: show)",
+    )
+    config_parser.add_argument(
+        "--host",
+        "--ollama-host",
+        type=str,
+        default=None,
+        help="Set default Ollama daemon host URL",
+    )
+    config_parser.add_argument(
+        "--embedding-model",
+        type=str,
+        default=None,
+        help="Set default embedding model name",
+    )
+    config_parser.add_argument(
+        "--llm-model",
+        type=str,
+        default=None,
+        help="Set default LLM model name for summarization and drafting",
+    )
+    config_parser.add_argument(
+        "--group-gap",
+        type=float,
+        default=None,
+        help="Set default group chat burst gap in minutes",
+    )
+    config_parser.add_argument(
+        "--direct-gap",
+        type=float,
+        default=None,
+        help="Set default direct 1:1 chat burst gap in minutes",
+    )
+    config_parser.add_argument(
+        "--db",
+        type=Path,
+        default=None,
+        help="Set default target SQLite database path",
+    )
+    config_parser.add_argument(
+        "--vault",
+        type=Path,
+        default=None,
+        help="Set default vault config path",
+    )
+    config_parser.add_argument(
+        "--config",
+        type=Path,
+        default=DEFAULT_CONFIG_PATH,
+        help="Target config file path (default: config.json)",
     )
 
     return parser
@@ -567,11 +688,36 @@ def run_ingest(args: argparse.Namespace) -> int:
 
     # Chunk into Conversational Flow Episodes
     chat_names = {c.chat_jid: c.chat_name for c in report.chats}
-    episodes = chunk_into_episodes(messages, chat_names=chat_names)
+    grp_gap = (
+        args.group_gap * 60.0
+        if getattr(args, "group_gap", None) is not None
+        else (
+            vault_config.group_burst_minutes * 60.0
+            if vault_config and hasattr(vault_config, "group_burst_minutes")
+            else GROUP_BURST_GAP_SECONDS
+        )
+    )
+    dir_gap = (
+        args.direct_gap * 60.0
+        if getattr(args, "direct_gap", None) is not None
+        else (
+            vault_config.direct_burst_minutes * 60.0
+            if vault_config and hasattr(vault_config, "direct_burst_minutes")
+            else DIRECT_BURST_GAP_SECONDS
+        )
+    )
+    episodes = chunk_into_episodes(
+        messages,
+        chat_names=chat_names,
+        group_gap_seconds=grp_gap,
+        direct_gap_seconds=dir_gap,
+    )
 
+    host = _resolve_host(args, vault_config)
     embedder = get_embedding_provider(
         name=getattr(args, "embedder", "auto"),
         model=getattr(args, "model", "nomic-embed-text"),
+        host=host,
     )
 
     with SearchIndex(args.db, embedder=embedder) as index:
@@ -617,7 +763,8 @@ def run_search(args: argparse.Namespace) -> int:
     target = getattr(args, "target", "auto")
     mode = getattr(args, "mode", "hybrid")
     embedder_name = getattr(args, "embedder", "auto")
-    embedder = get_embedding_provider(embedder_name)
+    host = _resolve_host(args)
+    embedder = get_embedding_provider(embedder_name, host=host)
 
     with SearchIndex(db_path, embedder=embedder) as index:
         # Determine whether to search messages or episodes
@@ -857,7 +1004,8 @@ def run_episodes(args: argparse.Namespace) -> int:
 
     mode = getattr(args, "mode", "hybrid")
     embedder_name = getattr(args, "embedder", "auto")
-    embedder = get_embedding_provider(embedder_name)
+    host = _resolve_host(args)
+    embedder = get_embedding_provider(embedder_name, host=host)
 
     with SearchIndex(db_path, embedder=embedder) as index:
         if args.query:
@@ -914,7 +1062,8 @@ def run_purge(args: argparse.Namespace) -> int:
         return 1
 
     embedder_name = getattr(args, "embedder", "auto")
-    embedder = get_embedding_provider(embedder_name)
+    host = _resolve_host(args)
+    embedder = get_embedding_provider(embedder_name, host=host)
 
     if not args.message_id and not args.expired and not args.all_revoked:
         print(
@@ -975,20 +1124,37 @@ def run_purge(args: argparse.Namespace) -> int:
     return 0
 
 
-def _get_llm_adapter(provider_choice: str, model: str):
+def _resolve_host(
+    args: argparse.Namespace, vault_cfg: VaultConfig | None = None
+) -> str:
+    host_arg = getattr(args, "ollama_host", None) or getattr(args, "host", None)
+    if host_arg:
+        return host_arg
+    if vault_cfg and hasattr(vault_cfg, "ollama_host") and vault_cfg.ollama_host:
+        return vault_cfg.ollama_host
+    if DEFAULT_CONFIG_PATH.exists():
+        app_cfg = AppConfig.load(DEFAULT_CONFIG_PATH)
+        return app_cfg.ollama_host
+    return "http://127.0.0.1:11434"
+
+
+def _get_llm_adapter(
+    provider_choice: str, model: str, host: str = "http://127.0.0.1:11434"
+):
     if provider_choice == "mock":
         return DeterministicMockLLMAdapter(model=model)
     if provider_choice == "ollama":
-        return OllamaLLMAdapter(model=model)
+        return OllamaLLMAdapter(host=host, model=model)
 
-    # auto mode: try connecting to Ollama at 127.0.0.1:11434
+    # auto mode: try connecting to Ollama at host
     try:
         import urllib.request
 
-        req = urllib.request.Request("http://127.0.0.1:11434/api/tags", method="GET")
+        clean_host = host.rstrip("/")
+        req = urllib.request.Request(f"{clean_host}/api/tags", method="GET")
         with urllib.request.urlopen(req, timeout=1.0) as resp:
             if resp.status == 200:
-                return OllamaLLMAdapter(model=model)
+                return OllamaLLMAdapter(host=clean_host, model=model)
     except Exception:
         pass
     return DeterministicMockLLMAdapter(model=model)
@@ -1009,7 +1175,8 @@ def run_summarize(args: argparse.Namespace) -> int:
         )
         return 1
 
-    llm = _get_llm_adapter(args.llm, args.model)
+    host = _resolve_host(args)
+    llm = _get_llm_adapter(args.llm, args.model, host=host)
     summarizer = Summarizer(llm=llm)
 
     if args.thread is not None:
@@ -1231,7 +1398,8 @@ def run_draft(args: argparse.Namespace) -> int:
             return 1
 
     # 7. Synthesize draft
-    llm = _get_llm_adapter(args.llm, args.model)
+    host = _resolve_host(args)
+    llm = _get_llm_adapter(args.llm, args.model, host=host)
     drafter = ReplyDrafter(llm=llm, review_box=review_box)
 
     staged, verification = drafter.draft_reply(
@@ -1288,6 +1456,69 @@ def run_draft(args: argparse.Namespace) -> int:
     return 0 if verification.is_valid else 1
 
 
+def run_config(args: argparse.Namespace) -> int:
+    config_path = args.config if getattr(args, "config", None) else DEFAULT_CONFIG_PATH
+    action = getattr(args, "action", "show")
+
+    if action == "init":
+        if config_path.exists():
+            print(f"Config file already exists at '{config_path}'")
+            return 0
+        cfg = AppConfig()
+        cfg.save(config_path)
+        print(f"Initialized default configuration at '{config_path}'")
+        return 0
+
+    cfg = AppConfig.load(config_path)
+
+    if action == "set":
+        changed = False
+        new_host = getattr(args, "ollama_host", None) or getattr(args, "host", None)
+        if new_host:
+            cfg.ollama_host = new_host
+            changed = True
+        if getattr(args, "embedding_model", None):
+            cfg.default_embedding_model = args.embedding_model
+            changed = True
+        if getattr(args, "llm_model", None):
+            cfg.default_llm_model = args.llm_model
+            changed = True
+        if getattr(args, "group_gap", None) is not None:
+            cfg.group_burst_minutes = args.group_gap
+            changed = True
+        if getattr(args, "direct_gap", None) is not None:
+            cfg.direct_burst_minutes = args.direct_gap
+            changed = True
+        if getattr(args, "db", None) is not None:
+            cfg.db_path = args.db
+            changed = True
+        if getattr(args, "vault", None) is not None:
+            cfg.vault_path = args.vault
+            changed = True
+
+        if changed:
+            cfg.save(config_path)
+            print(f"Updated configuration saved to '{config_path}'")
+        else:
+            print("No configuration options provided to update.")
+        return 0
+
+    # action == "show"
+    print("=" * 60)
+    print("               TOTAL RECALL: CONFIGURATION                  ")
+    print("=" * 60)
+    print(f"Config File: {config_path} (exists: {config_path.exists()})")
+    print(f"Database Path (db_path): {cfg.db_path}")
+    print(f"Vault Config Path (vault_path): {cfg.vault_path}")
+    print(f"Ollama Host (ollama_host): {cfg.ollama_host}")
+    print(f"Default Embedding Model: {cfg.default_embedding_model}")
+    print(f"Default LLM Model: {cfg.default_llm_model}")
+    print(f"Group Burst Gap: {cfg.group_burst_minutes} minutes")
+    print(f"Direct Burst Gap: {cfg.direct_burst_minutes} minutes")
+    print("=" * 60)
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -1308,6 +1539,8 @@ def main(argv: list[str] | None = None) -> int:
         return run_summarize(args)
     if args.command == "draft":
         return run_draft(args)
+    if args.command == "config":
+        return run_config(args)
     return 0
 
 
