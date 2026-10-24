@@ -5,10 +5,10 @@ import sqlite3
 from contextlib import redirect_stdout
 from pathlib import Path
 
-from total_recall.cli import main as cli_main
-from total_recall.config import AppConfig
-from total_recall.ingestion import IngestionEngine
-from total_recall.vault import VaultConfig
+from whatsapp_total_recall.cli import main as cli_main
+from whatsapp_total_recall.config import AppConfig
+from whatsapp_total_recall.ingestion import IngestionEngine
+from whatsapp_total_recall.vault import VaultConfig
 
 
 def test_app_config_roundtrip(tmp_path: Path):

@@ -9,17 +9,17 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from total_recall.chunking import chunk_into_episodes
-from total_recall.cli import main as cli_main
-from total_recall.embeddings import (
+from whatsapp_total_recall.chunking import chunk_into_episodes
+from whatsapp_total_recall.cli import main as cli_main
+from whatsapp_total_recall.embeddings import (
     DeterministicMockEmbeddingProvider,
     OllamaEmbeddingProvider,
     get_embedding_provider,
     l2_normalize,
 )
-from total_recall.ingestion import format_iso_timestamp
-from total_recall.search import SearchIndex, cosine_distance
-from total_recall.types import NormalizedMessage
+from whatsapp_total_recall.ingestion import format_iso_timestamp
+from whatsapp_total_recall.search import SearchIndex, cosine_distance
+from whatsapp_total_recall.types import NormalizedMessage
 
 
 def make_msg(

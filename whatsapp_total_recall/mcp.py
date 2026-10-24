@@ -13,15 +13,15 @@ import urllib.parse
 from pathlib import Path
 from typing import Any
 
-from total_recall.dag import ReplyDAG
-from total_recall.drafter import (
+from whatsapp_total_recall.dag import ReplyDAG
+from whatsapp_total_recall.drafter import (
     AutonomousSendingProhibitedError,
     DraftReviewBox,
     ReplyDrafter,
 )
-from total_recall.search import SearchIndex
-from total_recall.summarizer import DeterministicMockLLMAdapter, LLMAdapter
-from total_recall.vault import VaultConfig
+from whatsapp_total_recall.search import SearchIndex
+from whatsapp_total_recall.summarizer import DeterministicMockLLMAdapter, LLMAdapter
+from whatsapp_total_recall.vault import VaultConfig
 
 DEFAULT_BRIDGE_TOKEN_PATH = Path(".bridge-token")
 MCP_PROTOCOL_VERSION = "2024-11-05"
@@ -75,7 +75,7 @@ class MCPServer:
 
     def __init__(
         self,
-        db_path: Path | str = "total_recall.db",
+        db_path: Path | str = "whatsapp_total_recall.db",
         token: str | None = None,
         token_path: Path | str | None = None,
         review_box_path: Path | str | None = None,

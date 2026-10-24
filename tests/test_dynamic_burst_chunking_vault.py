@@ -7,18 +7,18 @@ from pathlib import Path
 
 import pytest
 
-from total_recall.chunking import (
+from whatsapp_total_recall.chunking import (
     chunk_into_episodes,
 )
-from total_recall.cli import main as cli_main
-from total_recall.ingestion import (
+from whatsapp_total_recall.cli import main as cli_main
+from whatsapp_total_recall.ingestion import (
     APPLE_EPOCH_OFFSET,
     IngestionEngine,
     format_iso_timestamp,
 )
-from total_recall.search import SearchIndex
-from total_recall.types import NormalizedMessage
-from total_recall.vault import VaultConfig
+from whatsapp_total_recall.search import SearchIndex
+from whatsapp_total_recall.types import NormalizedMessage
+from whatsapp_total_recall.vault import VaultConfig
 
 
 def make_msg(

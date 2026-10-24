@@ -4,7 +4,7 @@ import math
 from collections import defaultdict
 from collections.abc import Sequence
 
-from total_recall.types import (
+from whatsapp_total_recall.types import (
     ConversationalFlowEpisode,
     CrossBurstQuoteContext,
     NormalizedMessage,

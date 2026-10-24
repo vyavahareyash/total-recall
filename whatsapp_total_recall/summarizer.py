@@ -6,9 +6,9 @@ import urllib.error
 import urllib.request
 from typing import Protocol, runtime_checkable
 
-from total_recall.chunking import chunk_into_episodes
-from total_recall.dag import ReplyDAG
-from total_recall.types import (
+from whatsapp_total_recall.chunking import chunk_into_episodes
+from whatsapp_total_recall.dag import ReplyDAG
+from whatsapp_total_recall.types import (
     Citation,
     ConversationalFlowEpisode,
     NormalizedMessage,

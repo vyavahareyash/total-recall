@@ -1,10 +1,10 @@
 SWIFTC ?= swiftc
-TARGET ?= TotalRecallBar
+TARGET ?= WhatsAppTotalRecallBar
 SRC ?= main.swift
 CACHE ?= /tmp/swift-cache
-APP_NAME ?= TotalRecallBar.app
-DMG_NAME ?= TotalRecallBar-macos.dmg
-DMG_STAGING ?= /tmp/tr-dmg-staging
+APP_NAME ?= WhatsAppTotalRecallBar.app
+DMG_NAME ?= WhatsAppTotalRecall-macos.dmg
+DMG_STAGING ?= /tmp/wtr-dmg-staging
 
 .PHONY: all build universal app dmg clean run
 

@@ -7,8 +7,8 @@ from pathlib import Path
 
 import pytest
 
-from total_recall.cli import main as cli_main
-from total_recall.drafter import (
+from whatsapp_total_recall.cli import main as cli_main
+from whatsapp_total_recall.drafter import (
     AutonomousSendingProhibitedError,
     DraftReviewBox,
     IntentVerifier,
@@ -16,10 +16,10 @@ from total_recall.drafter import (
     ToneAnalyzer,
     detect_unanswered_questions,
 )
-from total_recall.ingestion import APPLE_EPOCH_OFFSET, format_iso_timestamp
-from total_recall.search import SearchIndex
-from total_recall.summarizer import DeterministicMockLLMAdapter
-from total_recall.types import (
+from whatsapp_total_recall.ingestion import APPLE_EPOCH_OFFSET, format_iso_timestamp
+from whatsapp_total_recall.search import SearchIndex
+from whatsapp_total_recall.summarizer import DeterministicMockLLMAdapter
+from whatsapp_total_recall.types import (
     DraftStatus,
     NormalizedMessage,
     StagedDraft,

@@ -4,22 +4,22 @@ import argparse
 import sys
 from pathlib import Path
 
-from total_recall.chunking import (
+from whatsapp_total_recall.chunking import (
     DIRECT_BURST_GAP_SECONDS,
     GROUP_BURST_GAP_SECONDS,
     chunk_into_episodes,
 )
-from total_recall.config import DEFAULT_CONFIG_PATH, AppConfig
-from total_recall.dag import ReplyDAG
-from total_recall.discovery import discover_whatsapp_containers
-from total_recall.drafter import (
+from whatsapp_total_recall.config import DEFAULT_CONFIG_PATH, AppConfig
+from whatsapp_total_recall.dag import ReplyDAG
+from whatsapp_total_recall.discovery import discover_whatsapp_containers
+from whatsapp_total_recall.drafter import (
     DraftReviewBox,
     ReplyDrafter,
     detect_unanswered_questions,
 )
-from total_recall.embeddings import get_embedding_provider
-from total_recall.ingestion import IngestionEngine
-from total_recall.mcp import (
+from whatsapp_total_recall.embeddings import get_embedding_provider
+from whatsapp_total_recall.ingestion import IngestionEngine
+from whatsapp_total_recall.mcp import (
     DEFAULT_BRIDGE_TOKEN_PATH,
     MCPServer,
     MCPSSEServer,
@@ -27,17 +27,17 @@ from total_recall.mcp import (
     load_or_create_bridge_token,
     validate_loopback_host,
 )
-from total_recall.search import SearchIndex
-from total_recall.summarizer import (
+from whatsapp_total_recall.search import SearchIndex
+from whatsapp_total_recall.summarizer import (
     DeterministicMockLLMAdapter,
     OllamaLLMAdapter,
     Summarizer,
 )
-from total_recall.types import NormalizedMessage
-from total_recall.ui import build_native_menu_bar_app, run_ui_server
-from total_recall.vault import VaultConfig
+from whatsapp_total_recall.types import NormalizedMessage
+from whatsapp_total_recall.ui import build_native_menu_bar_app, run_ui_server
+from whatsapp_total_recall.vault import VaultConfig
 
-DEFAULT_DB_PATH = Path("total_recall.db")
+DEFAULT_DB_PATH = Path("whatsapp_total_recall.db")
 DEFAULT_VAULT_PATH = Path("vault_config.json")
 
 
@@ -1844,7 +1844,7 @@ def run_mcp(args: argparse.Namespace) -> int:
 
 def run_ui(args: argparse.Namespace) -> int:
     if args.build_only:
-        print("Compiling native macOS menu bar app (TotalRecallBar)...")
+        print("Compiling native macOS menu bar app (WhatsAppTotalRecallBar)...")
         res = build_native_menu_bar_app()
         if res and res.exists():
             print(f"Success! Native app compiled at: {res}")

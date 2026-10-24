@@ -58,7 +58,7 @@ WhatsApp Catalyst database files are located in `~/Library/Group Containers/grou
 
 1. Open **System Settings** > **Privacy & Security** > **Full Disk Access**.
 2. Unlock with your password or Touch ID.
-3. Toggle ON (or click **+** to add) your terminal emulator (**Terminal**, **iTerm2**, or **Ghostty**), **TotalRecallBar.app**, and your IDE (e.g. **Cursor**, **VS Code**).
+3. Toggle ON (or click **+** to add) your terminal emulator (**Terminal**, **iTerm2**, or **Ghostty**), **WhatsAppTotalRecallBar.app**, and your IDE (e.g. **Cursor**, **VS Code**).
 
 ---
 
@@ -66,9 +66,9 @@ WhatsApp Catalyst database files are located in `~/Library/Group Containers/grou
 
 ### Option 1: Standalone macOS Menu Bar App (Recommended for GUI Users)
 
-1. Download the latest `TotalRecallBar-macos.dmg` from [GitHub Releases](https://github.com/vyavahareyash/whatsapp-total-recall/releases).
-2. Open `TotalRecallBar-macos.dmg` and drag `TotalRecallBar.app` into `/Applications`.
-3. Launch `TotalRecallBar.app`. An icon appears in your menu bar.
+1. Download the latest `WhatsAppTotalRecall-macos.dmg` from [GitHub Releases](https://github.com/vyavahareyash/whatsapp-total-recall/releases).
+2. Open `WhatsAppTotalRecall-macos.dmg` and drag `WhatsAppTotalRecallBar.app` into `/Applications`.
+3. Launch `WhatsAppTotalRecallBar.app`. An icon appears in your menu bar.
 
 ### Option 2: Python CLI Installation via `uv` or `pipx`
 
@@ -91,7 +91,7 @@ pip install "whatsapp-total-recall[vec]"
 
 ### Option 3: Direct MCP Server Install (for Claude Desktop & Cursor)
 
-`TotalRecallBar.app` is **not** required to use the MCP server. MCP runs completely headless:
+`WhatsAppTotalRecallBar.app` is **not** required to use the MCP server. MCP runs completely headless:
 
 > [!TIP]
 > You only need `uvx` (or the Python CLI) and a one-time message ingestion (`whatsapp-total-recall vault approve --all` followed by `whatsapp-total-recall ingest`). If invoking directly from Claude Desktop / Cursor, grant Full Disk Access to that application.
@@ -151,7 +151,7 @@ cd whatsapp-total-recall
 uv sync --extra vec
 
 # Or build the native menu bar DMG installer
-make -C apps/TotalRecallBar dmg
+make -C apps/WhatsAppTotalRecallBar dmg
 ```
 
 ---
@@ -246,7 +246,7 @@ Total Recall includes an automated GitHub Actions release workflow (`.github/wor
 * **Trigger:** Push a semantic tag (e.g. `git tag v0.1.0 && git push origin v0.1.0`) or run manually via `workflow_dispatch`.
 * **Quality Gate:** Automated linting (`ruff`), format validation, and matrix test execution on Ubuntu & macOS.
 * **Build Outputs:**
-  * Universal macOS DMG installer (`TotalRecallBar-macos.dmg`) supporting both Apple Silicon (`arm64`) and Intel (`x86_64`).
+  * Universal macOS DMG installer (`WhatsAppTotalRecall-macos.dmg`) supporting both Apple Silicon (`arm64`) and Intel (`x86_64`).
   * Python Wheel (`.whl`) and Source Distribution (`.tar.gz`).
   * Cryptographic checksum ledger (`SHA256SUMS.txt`).
 * **Publishing:** Creates GitHub Releases with changelogs and optionally publishes packages to PyPI via trusted publishing.

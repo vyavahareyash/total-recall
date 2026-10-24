@@ -8,12 +8,12 @@ import uuid
 from collections.abc import Sequence
 from pathlib import Path
 
-from total_recall.ingestion import format_iso_timestamp
-from total_recall.summarizer import (
+from whatsapp_total_recall.ingestion import format_iso_timestamp
+from whatsapp_total_recall.summarizer import (
     DeterministicMockLLMAdapter,
     LLMAdapter,
 )
-from total_recall.types import (
+from whatsapp_total_recall.types import (
     DraftStatus,
     IntentVerificationResult,
     NormalizedMessage,

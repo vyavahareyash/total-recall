@@ -1,6 +1,6 @@
 import pytest
 
-from total_recall import cli
+from whatsapp_total_recall import cli
 
 
 @pytest.fixture(autouse=True)

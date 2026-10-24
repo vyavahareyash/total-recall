@@ -3,9 +3,9 @@
 <plist version="1.0">
 <dict>
     <key>CFBundleExecutable</key>
-    <string>TotalRecallBar</string>
+    <string>WhatsAppTotalRecallBar</string>
     <key>CFBundleIdentifier</key>
-    <string>com.whatsapptotalrecall.TotalRecallBar</string>
+    <string>com.whatsapptotalrecall.WhatsAppTotalRecallBar</string>
     <key>CFBundleName</key>
     <string>WhatsAppTotalRecallBar</string>
     <key>CFBundleDisplayName</key>

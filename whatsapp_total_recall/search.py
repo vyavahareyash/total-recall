@@ -9,9 +9,9 @@ from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
 
-from total_recall.chunking import rebuild_episode_without_message
-from total_recall.embeddings import EmbeddingProvider, get_embedding_provider
-from total_recall.types import (
+from whatsapp_total_recall.chunking import rebuild_episode_without_message
+from whatsapp_total_recall.embeddings import EmbeddingProvider, get_embedding_provider
+from whatsapp_total_recall.types import (
     ConversationalFlowEpisode,
     CrossBurstQuoteContext,
     NormalizedMessage,

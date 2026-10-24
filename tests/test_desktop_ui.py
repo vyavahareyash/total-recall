@@ -7,19 +7,22 @@ from pathlib import Path
 
 import pytest
 
-from total_recall.chunking import chunk_into_episodes
-from total_recall.config import AppConfig
-from total_recall.drafter import AutonomousSendingProhibitedError, DraftReviewBox
-from total_recall.mcp import validate_loopback_host
-from total_recall.search import SearchIndex
-from total_recall.summarizer import DeterministicMockLLMAdapter
-from total_recall.types import NormalizedMessage
-from total_recall.ui import (
+from whatsapp_total_recall.chunking import chunk_into_episodes
+from whatsapp_total_recall.config import AppConfig
+from whatsapp_total_recall.drafter import (
+    AutonomousSendingProhibitedError,
+    DraftReviewBox,
+)
+from whatsapp_total_recall.mcp import validate_loopback_host
+from whatsapp_total_recall.search import SearchIndex
+from whatsapp_total_recall.summarizer import DeterministicMockLLMAdapter
+from whatsapp_total_recall.types import NormalizedMessage
+from whatsapp_total_recall.ui import (
     UIRequestHandler,
     UIServerContext,
     build_native_menu_bar_app,
 )
-from total_recall.vault import VaultConfig
+from whatsapp_total_recall.vault import VaultConfig
 
 
 @pytest.fixture

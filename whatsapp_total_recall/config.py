@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from total_recall.vault import VaultConfig
+from whatsapp_total_recall.vault import VaultConfig
 
 DEFAULT_CONFIG_PATH = Path("config.json")
 
@@ -14,7 +14,7 @@ DEFAULT_CONFIG_PATH = Path("config.json")
 class AppConfig:
     """Unified application configuration and user preferences for Total Recall."""
 
-    db_path: Path = Path("total_recall.db")
+    db_path: Path = Path("whatsapp_total_recall.db")
     vault_path: Path = Path("vault_config.json")
     ollama_host: str = "http://127.0.0.1:11434"
     default_embedding_model: str = "nomic-embed-text"
@@ -39,7 +39,7 @@ class AppConfig:
     def from_dict(cls, data: dict[str, Any]) -> AppConfig:
         """Deserialize configuration from dictionary."""
         return cls(
-            db_path=Path(data.get("db_path", "total_recall.db")),
+            db_path=Path(data.get("db_path", "whatsapp_total_recall.db")),
             vault_path=Path(data.get("vault_path", "vault_config.json")),
             ollama_host=str(data.get("ollama_host", "http://127.0.0.1:11434")),
             default_embedding_model=str(
