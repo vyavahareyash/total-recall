@@ -5,6 +5,7 @@ import math
 import re
 import sqlite3
 import struct
+from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -187,13 +188,19 @@ class SearchIndex:
         self.embedder = get_embedding_provider("auto")
         return self.embedder
 
-    def index_messages(self, messages: list[NormalizedMessage]) -> int:
+    def index_messages(
+        self,
+        messages: list[NormalizedMessage],
+        progress_callback: Callable[[int, int], None] | None = None,
+    ) -> int:
         """Batch index normalized messages into both storage and FTS5 tables."""
         if not messages:
             return 0
 
         cur = self.con.cursor()
-        for msg in messages:
+        total = len(messages)
+        step = max(1, min(100, total // 50))
+        for idx, msg in enumerate(messages, 1):
             cur.execute(
                 """
                 INSERT OR REPLACE INTO messages (
@@ -228,6 +235,8 @@ class SearchIndex:
                 """,
                 (str(msg.pk), msg.chat_jid, msg.sender_name, msg.text),
             )
+            if progress_callback and (idx % step == 0 or idx == total):
+                progress_callback(idx, total)
 
         self.con.commit()
         return len(messages)
@@ -237,6 +246,7 @@ class SearchIndex:
         episodes: list[ConversationalFlowEpisode],
         index_constituent_messages: bool = True,
         embedder: EmbeddingProvider | None = None,
+        progress_callback: Callable[[int, int], None] | None = None,
     ) -> int:
         """Batch index Conversational Flow Episodes into FTS5 and vector tables."""
         if not episodes:
@@ -252,7 +262,8 @@ class SearchIndex:
         active_embedder = self._get_embedder(embedder)
 
         cur = self.con.cursor()
-        for ep in episodes:
+        total = len(episodes)
+        for idx, ep in enumerate(episodes, 1):
             msgs_payload = [
                 {
                     "pk": m.pk,
@@ -337,6 +348,8 @@ class SearchIndex:
                 """,
                 (ep.episode_id, vec_bytes),
             )
+            if progress_callback:
+                progress_callback(idx, total)
 
         self.con.commit()
         return len(episodes)

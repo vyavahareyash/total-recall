@@ -27,6 +27,14 @@ from total_recall.embeddings import (
     get_embedding_provider,
 )
 from total_recall.ingestion import IngestionEngine
+from total_recall.mcp import (
+    DEFAULT_BRIDGE_TOKEN_PATH,
+    MCPServer,
+    MCPSSEServer,
+    MCPStdioTransport,
+    load_or_create_bridge_token,
+    validate_loopback_host,
+)
 from total_recall.search import SearchIndex
 from total_recall.summarizer import (
     DeterministicMockLLMAdapter,
@@ -61,6 +69,7 @@ from total_recall.vault import DiscoveredChat, IngestionReport, VaultConfig
 
 __all__ = [
     "DEFAULT_CONFIG_PATH",
+    "DEFAULT_BRIDGE_TOKEN_PATH",
     "DIRECT_BURST_GAP_SECONDS",
     "GROUP_BURST_GAP_SECONDS",
     "AppConfig",
@@ -81,6 +90,9 @@ __all__ = [
     "IntentVerificationResult",
     "IntentVerifier",
     "LLMAdapter",
+    "MCPServer",
+    "MCPSSEServer",
+    "MCPStdioTransport",
     "MiniTruePrefixesVerifier",
     "NormalizedMessage",
     "OllamaEmbeddingProvider",
@@ -109,5 +121,7 @@ __all__ = [
     "discover_whatsapp_containers",
     "format_citation",
     "get_embedding_provider",
+    "load_or_create_bridge_token",
     "parse_citation",
+    "validate_loopback_host",
 ]

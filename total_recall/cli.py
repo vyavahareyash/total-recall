@@ -19,6 +19,14 @@ from total_recall.drafter import (
 )
 from total_recall.embeddings import get_embedding_provider
 from total_recall.ingestion import IngestionEngine
+from total_recall.mcp import (
+    DEFAULT_BRIDGE_TOKEN_PATH,
+    MCPServer,
+    MCPSSEServer,
+    MCPStdioTransport,
+    load_or_create_bridge_token,
+    validate_loopback_host,
+)
 from total_recall.search import SearchIndex
 from total_recall.summarizer import (
     DeterministicMockLLMAdapter,
@@ -609,6 +617,68 @@ def build_parser() -> argparse.ArgumentParser:
         help="Target config file path (default: config.json)",
     )
 
+    # 10. MCP subcommand
+    mcp_parser = subparsers.add_parser(
+        "mcp",
+        help="Run local-first Model Context Protocol (MCP) server over stdio or token-authenticated SSE",
+    )
+    mcp_parser.add_argument(
+        "--transport",
+        choices=["stdio", "sse"],
+        default="stdio",
+        help="MCP transport protocol: stdio or sse (default: stdio)",
+    )
+    mcp_parser.add_argument(
+        "--host",
+        type=str,
+        default="127.0.0.1",
+        help="Host interface for SSE server; must bind strictly to 127.0.0.1 (default: 127.0.0.1)",
+    )
+    mcp_parser.add_argument(
+        "--port",
+        type=int,
+        default=8765,
+        help="Port for SSE server (default: 8765)",
+    )
+    mcp_parser.add_argument(
+        "--token",
+        type=str,
+        default=None,
+        help="Bearer token for authentication (overrides token file)",
+    )
+    mcp_parser.add_argument(
+        "--token-file",
+        type=Path,
+        default=DEFAULT_BRIDGE_TOKEN_PATH,
+        help="Path to token file (default: .bridge-token)",
+    )
+    mcp_parser.add_argument(
+        "--db",
+        type=Path,
+        default=DEFAULT_DB_PATH,
+        help="Target SQLite database to query (default: total_recall.db)",
+    )
+    mcp_parser.add_argument(
+        "--llm",
+        choices=["auto", "ollama", "mock"],
+        default="auto",
+        help="Local LLM adapter for reply drafting (default: auto)",
+    )
+    mcp_parser.add_argument(
+        "--model",
+        type=str,
+        default="qwen2.5:7b",
+        help="LLM model identifier (default: qwen2.5:7b)",
+    )
+    mcp_parser.add_argument(
+        "--host-ollama",
+        "--ollama-host",
+        dest="host_ollama",
+        type=str,
+        default=None,
+        help="Ollama daemon HTTP host",
+    )
+
     return parser
 
 
@@ -626,6 +696,24 @@ def _resolve_source_and_contacts(
     ):
         return containers.chat_storage, contacts_path or containers.contacts
     return None, None
+
+
+def _render_progress_bar(current: int, total: int, prefix: str = "Processing") -> None:
+    if total <= 0:
+        return
+    pct = (current / total) * 100
+    bar_len = 25
+    filled = int(bar_len * current // total)
+    bar = (
+        "=" * filled
+        + (">" if filled < bar_len else "")
+        + " " * max(0, bar_len - filled - 1 if filled < bar_len else 0)
+    )
+    sys.stdout.write(f"\r{prefix}: [{bar}] {current}/{total} ({pct:.1f}%)")
+    sys.stdout.flush()
+    if current >= total:
+        sys.stdout.write("\n")
+        sys.stdout.flush()
 
 
 def run_ingest(args: argparse.Namespace) -> int:
@@ -673,10 +761,12 @@ def run_ingest(args: argparse.Namespace) -> int:
         for ws in args.workspace:
             vault_config.toggle_workspace(ws, active=True)
 
+    print(f"Reading WhatsApp database: {source_path}")
     engine = IngestionEngine(source_path, contacts_path)
     try:
         report = engine.discover_chats(vault_config=vault_config)
         include_groups = bool(args.include_groups)
+        print("Extracting and normalizing messages...")
         messages, stats = engine.extract_messages(
             include_direct=True,
             include_groups=include_groups,
@@ -685,6 +775,10 @@ def run_ingest(args: argparse.Namespace) -> int:
     except Exception as exc:
         print(f"Error extracting messages: {exc}", file=sys.stderr)
         return 1
+
+    print(
+        f"Extracted {len(messages)} message(s) from {stats.total_sessions_scanned} session(s)."
+    )
 
     # Chunk into Conversational Flow Episodes
     chat_names = {c.chat_jid: c.chat_name for c in report.chats}
@@ -706,35 +800,65 @@ def run_ingest(args: argparse.Namespace) -> int:
             else DIRECT_BURST_GAP_SECONDS
         )
     )
+    print("Segmenting into conversational flow episodes...")
     episodes = chunk_into_episodes(
         messages,
         chat_names=chat_names,
         group_gap_seconds=grp_gap,
         direct_gap_seconds=dir_gap,
     )
+    print(f"Generated {len(episodes)} episode(s).")
 
+    embedder_name = getattr(args, "embedder", "auto")
+    print(f"Resolving embedding provider ({embedder_name})...")
     host = _resolve_host(args, vault_config)
     embedder = get_embedding_provider(
-        name=getattr(args, "embedder", "auto"),
+        name=embedder_name,
         model=getattr(args, "model", "nomic-embed-text"),
         host=host,
     )
 
+    print(f"Opening index store '{args.db}'...")
     with SearchIndex(args.db, embedder=embedder) as index:
-        rev_reports, exp_reports = engine.purge_revocations_and_expired(
-            index=index, embedder=embedder
-        )
-        if rev_reports:
-            print(f"Purged {len(rev_reports)} revoked message(s) from index.")
-        if exp_reports:
-            print(
-                f"Purged {len(exp_reports)} expired disappearing message(s) from index."
+        indexed_count = len(index.get_all_message_pks())
+        if indexed_count > 0:
+            print(f"Checking revocations across {indexed_count} indexed message(s)...")
+            rev_reports, exp_reports = engine.purge_revocations_and_expired(
+                index=index,
+                embedder=embedder,
+                progress_callback=lambda cur, tot: _render_progress_bar(
+                    cur, tot, prefix="Purging revocations"
+                ),
             )
+            if rev_reports:
+                print(f"Purged {len(rev_reports)} revoked message(s) from index.")
+            if exp_reports:
+                print(
+                    f"Purged {len(exp_reports)} expired disappearing message(s) from index."
+                )
+        else:
+            print("Index store is clean (no previous messages to purge).")
 
-        index.index_messages(messages)
-        indexed_episodes = index.index_episodes(
-            episodes, index_constituent_messages=False, embedder=embedder
-        )
+        if messages:
+            print(f"Indexing {len(messages)} message(s) into FTS5 store...")
+            index.index_messages(
+                messages,
+                progress_callback=lambda cur, tot: _render_progress_bar(
+                    cur, tot, prefix="Indexing messages"
+                ),
+            )
+        if episodes:
+            print(f"Computing embeddings & indexing {len(episodes)} episode(s)...")
+            indexed_episodes = index.index_episodes(
+                episodes,
+                index_constituent_messages=False,
+                embedder=embedder,
+                progress_callback=lambda cur, tot: _render_progress_bar(
+                    cur, tot, prefix="Embedding & indexing episodes"
+                ),
+            )
+        else:
+            indexed_episodes = 0
 
     print(f"Ingestion complete into '{args.db}':")
     print(f"  Sessions scanned: {stats.total_sessions_scanned}")
@@ -1519,6 +1643,69 @@ def run_config(args: argparse.Namespace) -> int:
     return 0
 
 
+def run_mcp(args: argparse.Namespace) -> int:
+    transport = getattr(args, "transport", "stdio")
+    host = getattr(args, "host", "127.0.0.1")
+    port = getattr(args, "port", 8765)
+    token_str = getattr(args, "token", None)
+    token_file = getattr(args, "token_file", DEFAULT_BRIDGE_TOKEN_PATH)
+    db_path = getattr(args, "db", DEFAULT_DB_PATH)
+
+    if not token_file.is_absolute() and db_path and db_path.is_absolute():
+        token_file = db_path.parent / token_file
+
+    if transport == "sse":
+        try:
+            validate_loopback_host(host)
+        except ValueError as e:
+            print(f"Error: {e}", file=sys.stderr)
+            return 1
+
+    token = token_str or load_or_create_bridge_token(token_file)
+
+    host_ollama = getattr(args, "host_ollama", None)
+    if host_ollama and (
+        host_ollama.startswith("http://") or host_ollama.startswith("https://")
+    ):
+        resolved_host = host_ollama
+    else:
+        resolved_host = _resolve_host(args)
+
+    llm = _get_llm_adapter(
+        getattr(args, "llm", "auto"),
+        getattr(args, "model", "qwen2.5:7b"),
+        host=resolved_host,
+    )
+
+    server = MCPServer(
+        db_path=db_path,
+        token=token,
+        llm_adapter=llm,
+    )
+
+    if transport == "stdio":
+        MCPStdioTransport(server).run()
+        return 0
+
+    if transport == "sse":
+        sse_server = MCPSSEServer(server, host=host, port=port)
+        print(
+            f"Total Recall MCP SSE Server running at http://{host}:{port}/sse (Auth token required)",
+            file=sys.stderr,
+        )
+        print(f"Token file: {token_file}", file=sys.stderr)
+        try:
+            sse_server.serve_forever()
+        except KeyboardInterrupt:
+            pass
+        finally:
+            sse_server.shutdown_server()
+        return 0
+
+    print(f"Error: Unsupported transport '{transport}'", file=sys.stderr)
+    return 1
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -1541,6 +1728,8 @@ def main(argv: list[str] | None = None) -> int:
         return run_draft(args)
     if args.command == "config":
         return run_config(args)
+    if args.command == "mcp":
+        return run_mcp(args)
     return 0
 
 
