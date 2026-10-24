@@ -29,6 +29,9 @@ class VaultConfig:
     approved_chat_jids: set[str] = field(default_factory=set)
     workspaces: dict[str, set[str]] = field(default_factory=dict)
     active_workspaces: set[str] = field(default_factory=set)
+    group_burst_minutes: float = 15.0
+    direct_burst_minutes: float = 45.0
+    ollama_host: str = "http://127.0.0.1:11434"
 
     def is_chat_approved(self, chat_jid: str) -> bool:
         """Return True if chat_jid is explicitly approved or part of an active workspace."""
@@ -93,6 +96,9 @@ class VaultConfig:
                 name: sorted(jids) for name, jids in sorted(self.workspaces.items())
             },
             "active_workspaces": sorted(self.active_workspaces),
+            "group_burst_minutes": self.group_burst_minutes,
+            "direct_burst_minutes": self.direct_burst_minutes,
+            "ollama_host": self.ollama_host,
         }
 
     @classmethod
@@ -102,10 +108,16 @@ class VaultConfig:
         raw_workspaces = data.get("workspaces", {})
         workspaces = {name: set(jids) for name, jids in raw_workspaces.items()}
         active_workspaces = set(data.get("active_workspaces", []))
+        group_burst_minutes = float(data.get("group_burst_minutes", 15.0))
+        direct_burst_minutes = float(data.get("direct_burst_minutes", 45.0))
+        ollama_host = str(data.get("ollama_host", "http://127.0.0.1:11434"))
         return cls(
             approved_chat_jids=approved,
             workspaces=workspaces,
             active_workspaces=active_workspaces,
+            group_burst_minutes=group_burst_minutes,
+            direct_burst_minutes=direct_burst_minutes,
+            ollama_host=ollama_host,
         )
 
     def save(self, path: Path | str) -> None:

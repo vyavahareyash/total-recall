@@ -520,6 +520,8 @@ class IngestionEngine:
         index: SearchIndex | None = None,
         embedder: EmbeddingProvider | None = None,
         current_timestamp: float | None = None,
+        group_gap_seconds: float | None = None,
+        direct_gap_seconds: float | None = None,
     ) -> tuple[list[ConversationalFlowEpisode], IngestionReport]:
         """Synchronize WhatsApp store using Opt-In Chat Vault perimeter and return episodes & report."""
         rev_count = 0
@@ -537,8 +539,31 @@ class IngestionEngine:
         )
 
         chat_names = {c.chat_jid: c.chat_name for c in report.chats}
+        grp_gap = (
+            group_gap_seconds
+            if group_gap_seconds is not None
+            else (
+                vault_config.group_burst_minutes * 60.0
+                if vault_config and hasattr(vault_config, "group_burst_minutes")
+                else 900.0
+            )
+        )
+        dir_gap = (
+            direct_gap_seconds
+            if direct_gap_seconds is not None
+            else (
+                vault_config.direct_burst_minutes * 60.0
+                if vault_config and hasattr(vault_config, "direct_burst_minutes")
+                else 2700.0
+            )
+        )
         episodes = (
-            chunk_into_episodes(messages, chat_names=chat_names)
+            chunk_into_episodes(
+                messages,
+                chat_names=chat_names,
+                group_gap_seconds=grp_gap,
+                direct_gap_seconds=dir_gap,
+            )
             if chunk_episodes
             else []
         )
