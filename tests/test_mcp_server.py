@@ -364,7 +364,7 @@ def test_sse_server_auth_and_messaging(tmp_path: Path):
         llm_adapter=DeterministicMockLLMAdapter(),
     )
 
-    sse_server = MCPSSEServer(server, host="127.0.0.1", port=8765)
+    sse_server = MCPSSEServer(server, host="127.0.0.1", port=0)
 
     try:
         # A. Unauthenticated / Invalid Token Requests must be rejected (401)
@@ -547,3 +547,72 @@ def test_cli_mcp_stdio_ping(tmp_path: Path, monkeypatch, capsys):
     res = json.loads(captured.out.strip())
     assert res["id"] == 42
     assert res["result"] == {}
+
+
+def test_mcp_server_vault_filter_enforcement(tmp_path: Path):
+    """Verify MCP tools enforce Opt-In Chat Vault filtering at query time."""
+    from total_recall.vault import VaultConfig
+
+    db_path = tmp_path / "test.db"
+    seed_test_database(db_path)
+    vault_path = tmp_path / "vault_config.json"
+
+    # Default-zero: no chats approved
+    vault = VaultConfig()
+    vault.save(vault_path)
+
+    server = MCPServer(
+        db_path=db_path,
+        token="secret-token",
+        vault_path=vault_path,
+    )
+
+    # 1. Search messages: returns 0 matches because 12345@g.us is not approved
+    search_resp = server.handle_message(
+        {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "method": "tools/call",
+            "params": {
+                "name": "search_messages",
+                "arguments": {"query": "architectural"},
+            },
+        }
+    )
+    assert search_resp["result"]["isError"] is False
+    search_data = json.loads(search_resp["result"]["content"][0]["text"])
+    assert len(search_data) == 0
+
+    # 2. Get thread context: blocked with error
+    thread_resp = server.handle_message(
+        {
+            "jsonrpc": "2.0",
+            "id": 2,
+            "method": "tools/call",
+            "params": {"name": "get_thread_context", "arguments": {"message_id": 1}},
+        }
+    )
+    assert thread_resp["result"]["isError"] is True
+    assert (
+        "not approved in Opt-In Chat Vault"
+        in thread_resp["result"]["content"][0]["text"]
+    )
+
+    # 3. Approve chat in vault: query immediately retrieves results
+    vault.approve("12345@g.us")
+    vault.save(vault_path)
+
+    search_resp2 = server.handle_message(
+        {
+            "jsonrpc": "2.0",
+            "id": 3,
+            "method": "tools/call",
+            "params": {
+                "name": "search_messages",
+                "arguments": {"query": "architectural"},
+            },
+        }
+    )
+    assert search_resp2["result"]["isError"] is False
+    search_data2 = json.loads(search_resp2["result"]["content"][0]["text"])
+    assert len(search_data2) >= 1

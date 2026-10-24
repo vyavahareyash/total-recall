@@ -65,6 +65,12 @@ from total_recall.types import (
     VerifiedClaim,
     VerifiedSummary,
 )
+from total_recall.ui import (
+    UIServer,
+    UIServerContext,
+    build_native_menu_bar_app,
+    run_ui_server,
+)
 from total_recall.vault import DiscoveredChat, IngestionReport, VaultConfig
 
 __all__ = [
@@ -111,11 +117,14 @@ __all__ = [
     "ToneAnalyzer",
     "ToneFormality",
     "ToneProfile",
+    "UIServer",
+    "UIServerContext",
     "UnansweredQuestion",
     "VaultConfig",
     "VerifiedClaim",
     "VerifiedSummary",
     "WhatsAppContainers",
+    "build_native_menu_bar_app",
     "chunk_into_episodes",
     "detect_unanswered_questions",
     "discover_whatsapp_containers",
@@ -123,5 +132,6 @@ __all__ = [
     "get_embedding_provider",
     "load_or_create_bridge_token",
     "parse_citation",
+    "run_ui_server",
     "validate_loopback_host",
 ]

@@ -159,6 +159,18 @@ class OllamaLLMAdapter:
             with urllib.request.urlopen(req, timeout=self.timeout) as resp:
                 data = json.loads(resp.read().decode("utf-8"))
                 return data.get("response", "").strip()
+        except urllib.error.HTTPError as err:
+            body_msg = ""
+            try:
+                body_json = json.loads(err.read().decode("utf-8"))
+                body_msg = body_json.get("error", "")
+            except Exception:
+                pass
+            detail = f": {body_msg}" if body_msg else f" ({err})"
+            raise ConnectionError(
+                f"Failed to communicate with local Ollama at {self.host}: HTTP {err.code} for model '{self.model}'{detail}. "
+                f"Make sure model '{self.model}' is installed (try: ollama pull {self.model})."
+            ) from err
         except urllib.error.URLError as err:
             raise ConnectionError(
                 f"Failed to communicate with local Ollama at {self.host}: {err}"

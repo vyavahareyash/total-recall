@@ -380,11 +380,20 @@ class DraftReviewBox:
                 intent_bullets_json TEXT NOT NULL,
                 tone_summary TEXT NOT NULL,
                 draft_text TEXT NOT NULL,
-                status TEXT NOT NULL CHECK(status IN ('STAGED_FOR_REVIEW', 'APPROVED_BY_USER', 'REJECTED_BY_USER')),
                 is_sent INTEGER NOT NULL DEFAULT 0 CHECK(is_sent = 0)
             );
             """
         )
+        # Migration: drop legacy status column if present and purge rejected drafts
+        cols = [
+            r[1]
+            for r in self.con.execute("PRAGMA table_info(staged_drafts)").fetchall()
+        ]
+        if "status" in cols:
+            self.con.execute(
+                "DELETE FROM staged_drafts WHERE status = 'REJECTED_BY_USER'"
+            )
+            self.con.execute("ALTER TABLE staged_drafts DROP COLUMN status")
         self.con.commit()
 
     def stage(self, draft: StagedDraft) -> StagedDraft:
@@ -413,8 +422,8 @@ class DraftReviewBox:
             INSERT OR REPLACE INTO staged_drafts (
                 draft_id, chat_jid, created_at, iso_date, thread_root_pk,
                 unanswered_questions_json, intent_bullets_json, tone_summary,
-                draft_text, status, is_sent
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
+                draft_text, is_sent
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0)
             """,
             (
                 draft.draft_id,
@@ -426,7 +435,6 @@ class DraftReviewBox:
                 json.dumps(list(draft.intent_bullets)),
                 json.dumps(tone_data),
                 draft.draft_text,
-                draft.status.value,
             ),
         )
         self.con.commit()
@@ -454,30 +462,26 @@ class DraftReviewBox:
         return [self._row_to_staged_draft(r) for r in cur.fetchall()]
 
     def approve(self, draft_id: str) -> StagedDraft:
-        """Mark draft as approved by user for manual copy-paste."""
-        cur = self.con.cursor()
-        cur.execute(
-            "UPDATE staged_drafts SET status = 'APPROVED_BY_USER' WHERE draft_id = ?",
-            (draft_id,),
-        )
-        self.con.commit()
+        """Approve draft (no-op since status tracking is removed)."""
         draft = self.get(draft_id)
         if not draft:
             raise KeyError(f"Draft '{draft_id}' not found.")
         return draft
 
     def reject(self, draft_id: str) -> StagedDraft:
-        """Mark draft as rejected by user."""
-        cur = self.con.cursor()
-        cur.execute(
-            "UPDATE staged_drafts SET status = 'REJECTED_BY_USER' WHERE draft_id = ?",
-            (draft_id,),
-        )
-        self.con.commit()
+        """Reject draft by deleting it from staged drafts."""
         draft = self.get(draft_id)
         if not draft:
             raise KeyError(f"Draft '{draft_id}' not found.")
+        self.delete(draft_id)
         return draft
+
+    def delete(self, draft_id: str) -> bool:
+        """Permanently delete a staged draft."""
+        cur = self.con.cursor()
+        cur.execute("DELETE FROM staged_drafts WHERE draft_id = ?", (draft_id,))
+        self.con.commit()
+        return cur.rowcount > 0
 
     def send(self, draft_id: str) -> None:
         """Structural prohibition against autonomous sending."""
@@ -507,6 +511,11 @@ class DraftReviewBox:
             sample_count=tone_data.get("sample_count", 0),
             exemplars=(),
         )
+        row_keys = row.keys()
+        raw_status = row["status"] if "status" in row_keys and row["status"] else None
+        status = (
+            DraftStatus(raw_status) if raw_status else DraftStatus.STAGED_FOR_REVIEW
+        )
         return StagedDraft(
             draft_id=row["draft_id"],
             chat_jid=row["chat_jid"],
@@ -517,7 +526,7 @@ class DraftReviewBox:
             intent_bullets=tuple(json.loads(row["intent_bullets_json"])),
             tone_profile=tone_profile,
             draft_text=row["draft_text"],
-            status=DraftStatus(row["status"]),
+            status=status,
         )
 
     def close(self) -> None:

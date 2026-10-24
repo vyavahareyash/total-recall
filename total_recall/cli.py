@@ -34,6 +34,7 @@ from total_recall.summarizer import (
     Summarizer,
 )
 from total_recall.types import NormalizedMessage
+from total_recall.ui import build_native_menu_bar_app, run_ui_server
 from total_recall.vault import VaultConfig
 
 DEFAULT_DB_PATH = Path("total_recall.db")
@@ -185,6 +186,12 @@ def build_parser() -> argparse.ArgumentParser:
         type=str,
         default=None,
         help="Ollama daemon HTTP host (default: http://127.0.0.1:11434)",
+    )
+    search_parser.add_argument(
+        "--vault",
+        type=Path,
+        default=None,
+        help="Path to Opt-In Chat Vault config JSON to filter query results",
     )
 
     # 3. Thread subcommand
@@ -548,6 +555,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="Reject a staged draft by ID",
     )
     draft_parser.add_argument(
+        "--delete",
+        type=str,
+        default=None,
+        help="Permanently delete a staged draft by ID",
+    )
+    draft_parser.add_argument(
         "--host",
         "--ollama-host",
         type=str,
@@ -677,6 +690,60 @@ def build_parser() -> argparse.ArgumentParser:
         type=str,
         default=None,
         help="Ollama daemon HTTP host",
+    )
+    mcp_parser.add_argument(
+        "--vault",
+        type=Path,
+        default=DEFAULT_VAULT_PATH,
+        help="Path to Opt-In Chat Vault config JSON (default: vault_config.json)",
+    )
+
+    # 11. UI subcommand
+    ui_parser = subparsers.add_parser(
+        "ui",
+        help="Run standalone macOS menu bar application and local UI daemon",
+    )
+    ui_parser.add_argument(
+        "--host",
+        type=str,
+        default="127.0.0.1",
+        help="Host interface to bind daemon; must bind strictly to 127.0.0.1 (default: 127.0.0.1)",
+    )
+    ui_parser.add_argument(
+        "--port",
+        type=int,
+        default=8765,
+        help="Port for local UI daemon (default: 8765)",
+    )
+    ui_parser.add_argument(
+        "--db",
+        type=Path,
+        default=DEFAULT_DB_PATH,
+        help="Target SQLite database (default: total_recall.db)",
+    )
+    ui_parser.add_argument(
+        "--vault",
+        type=Path,
+        default=DEFAULT_VAULT_PATH,
+        help="Path to vault config JSON (default: vault_config.json)",
+    )
+    ui_parser.add_argument(
+        "--headless",
+        action="store_true",
+        default=False,
+        help="Run daemon headlessly without spawning native desktop window",
+    )
+    ui_parser.add_argument(
+        "--open-browser",
+        action="store_true",
+        default=False,
+        help="Open default web browser",
+    )
+    ui_parser.add_argument(
+        "--build-only",
+        action="store_true",
+        default=False,
+        help="Compile native macOS Swift menu bar application and exit",
     )
 
     return parser
@@ -898,8 +965,18 @@ def run_search(args: argparse.Namespace) -> int:
         if target == "messages":
             search_episodes = False
 
+        vault = (
+            VaultConfig.load(args.vault)
+            if getattr(args, "vault", None) and Path(args.vault).exists()
+            else None
+        )
+
         if not search_episodes:
-            results = index.search(args.query, limit=args.limit)
+            candidate_limit = args.limit if vault is None else max(args.limit * 3, 30)
+            results = index.search(args.query, limit=candidate_limit)
+            if vault is not None:
+                results = [r for r in results if vault.is_chat_approved(r.chat_jid)]
+            results = results[: args.limit]
             if not results:
                 print(f"No matching messages found for: {args.query}")
                 return 0
@@ -912,16 +989,21 @@ def run_search(args: argparse.Namespace) -> int:
 
         # Episode search
         k_rrf = getattr(args, "k_rrf", 60.0)
+        candidate_limit = args.limit if vault is None else max(args.limit * 3, 30)
         if mode == "hybrid":
             scored = index.search_hybrid(
-                args.query, limit=args.limit, k_rrf=k_rrf, embedder=embedder
+                args.query, limit=candidate_limit, k_rrf=k_rrf, embedder=embedder
             )
         elif mode == "vector":
             scored = index.search_episodes_vector(
-                args.query, limit=args.limit, embedder=embedder
+                args.query, limit=candidate_limit, embedder=embedder
             )
         else:
-            scored = index.search_episodes(args.query, limit=args.limit)
+            scored = index.search_episodes(args.query, limit=candidate_limit)
+
+        if vault is not None:
+            scored = [s for s in scored if vault.is_chat_approved(s.episode.chat_jid)]
+        scored = scored[: args.limit]
 
         if not scored:
             print(f"No matching episodes found for: {args.query}")
@@ -1389,9 +1471,7 @@ def run_draft(args: argparse.Namespace) -> int:
         print("STAGED DRAFTS REVIEW BOX")
         print("=" * 80)
         for s in staged_list:
-            print(
-                f"Draft ID : {s.draft_id} | Status: {s.status.value} | Created: {s.iso_date}"
-            )
+            print(f"Draft ID : {s.draft_id} | Created: {s.iso_date}")
             print(f"Chat     : {s.chat_jid}")
             print(f"Intent   : {', '.join(s.intent_bullets)}")
             print("Proposed Draft:")
@@ -1399,11 +1479,21 @@ def run_draft(args: argparse.Namespace) -> int:
             print("-" * 80)
         return 0
 
+    if getattr(args, "delete", None):
+        deleted = review_box.delete(args.delete)
+        if deleted:
+            print(f"Draft '{args.delete}' deleted.")
+            return 0
+        else:
+            print(f"Draft '{args.delete}' not found.", file=sys.stderr)
+            return 1
+
     if args.approve:
         try:
             draft = review_box.approve(args.approve)
-            print(f"Draft '{draft.draft_id}' marked as {draft.status.value}.")
-            print("Ready for manual copy-paste into WhatsApp:")
+            print(
+                f"Draft '{draft.draft_id}' ready for manual copy-paste into WhatsApp:"
+            )
             print("-" * 40)
             print(draft.draft_text)
             print("-" * 40)
@@ -1415,7 +1505,7 @@ def run_draft(args: argparse.Namespace) -> int:
     if args.reject:
         try:
             draft = review_box.reject(args.reject)
-            print(f"Draft '{draft.draft_id}' marked as {draft.status.value}.")
+            print(f"Draft '{draft.draft_id}' rejected and deleted.")
             return 0
         except KeyError as e:
             print(f"Error: {e}", file=sys.stderr)
@@ -1540,9 +1630,7 @@ def run_draft(args: argparse.Namespace) -> int:
     print(
         "STAGED DRAFT REVIEW BOX (Manual Human Review Required - Autonomous Sending Prohibited)"
     )
-    print(
-        f"Draft ID: {staged.draft_id} | Chat: {staged.chat_jid} | Status: {staged.status.value}"
-    )
+    print(f"Draft ID: {staged.draft_id} | Chat: {staged.chat_jid}")
     print("=" * 80)
     print(
         f"Tone Formality : {staged.tone_profile.formality.value.capitalize()} (Learned from {staged.tone_profile.sample_count} recent outgoing messages)"
@@ -1681,6 +1769,7 @@ def run_mcp(args: argparse.Namespace) -> int:
         db_path=db_path,
         token=token,
         llm_adapter=llm,
+        vault_path=getattr(args, "vault", None),
     )
 
     if transport == "stdio":
@@ -1704,6 +1793,48 @@ def run_mcp(args: argparse.Namespace) -> int:
 
     print(f"Error: Unsupported transport '{transport}'", file=sys.stderr)
     return 1
+
+
+def run_ui(args: argparse.Namespace) -> int:
+    if args.build_only:
+        print("Compiling native macOS menu bar app (TotalRecallBar)...")
+        res = build_native_menu_bar_app()
+        if res and res.exists():
+            print(f"Success! Native app compiled at: {res}")
+            return 0
+        print("Error: Could not compile native menu bar app.", file=sys.stderr)
+        return 1
+
+    config = AppConfig.load()
+    db_path = args.db or config.db_path
+    vault_path = args.vault or config.vault_path
+
+    try:
+        url, server = run_ui_server(
+            db_path=db_path,
+            vault_path=vault_path,
+            review_box_path=db_path,
+            config=config,
+            host=args.host,
+            port=args.port,
+            launch_desktop_app=not args.headless,
+            open_browser=args.open_browser,
+        )
+    except ValueError as e:
+        print(f"Error: {e}", file=sys.stderr)
+        return 1
+
+    print(f"Total Recall Desktop UI daemon running at {url}")
+    print("Press Ctrl+C to shut down daemon.")
+
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        pass
+    finally:
+        server.shutdown()
+        server.server_close()
+    return 0
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -1730,6 +1861,8 @@ def main(argv: list[str] | None = None) -> int:
         return run_config(args)
     if args.command == "mcp":
         return run_mcp(args)
+    if args.command == "ui":
+        return run_ui(args)
     return 0
 
 

@@ -1,0 +1,1290 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Total Recall</title>
+  <style>
+    :root {
+      --bg: #f5f5f7;
+      --card-bg: #ffffff;
+      --text: #1d1d1f;
+      --text-secondary: #86868b;
+      --border: #d2d2d7;
+      --accent: #0071e3;
+      --accent-hover: #0077ed;
+      --accent-light: #e8f0fe;
+      --success: #34c759;
+      --warning: #ff9500;
+      --danger: #ff3b30;
+      --badge-bg: #e5e5ea;
+      --card-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+      --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "Helvetica Neue", sans-serif;
+      --mono: "SF Mono", Menlo, Monaco, Consolas, monospace;
+    }
+
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg: #1c1c1e;
+        --card-bg: #2c2c2e;
+        --text: #f5f5f7;
+        --text-secondary: #98989d;
+        --border: #38383a;
+        --accent: #2997ff;
+        --accent-hover: #409cff;
+        --accent-light: #1c3148;
+        --badge-bg: #3a3a3c;
+        --card-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+      }
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: var(--font);
+      background-color: var(--bg);
+      color: var(--text);
+      font-size: 13px;
+      line-height: 1.45;
+      user-select: none;
+      -webkit-user-select: none;
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+      overflow: hidden;
+    }
+
+    header {
+      padding: 12px 16px 8px;
+      background: var(--card-bg);
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+
+    .header-top {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 10px;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .brand-icon {
+      width: 22px;
+      height: 22px;
+      fill: var(--accent);
+    }
+
+    .brand-title {
+      font-size: 15px;
+      font-weight: 600;
+      letter-spacing: -0.2px;
+    }
+
+    .header-controls {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .model-select {
+      font-family: var(--mono);
+      font-size: 11px;
+      padding: 3px 6px;
+      border-radius: 6px;
+      border: 1px solid var(--border);
+      background: var(--bg);
+      color: var(--text);
+      cursor: pointer;
+      outline: none;
+      max-width: 140px;
+    }
+    .model-select:focus {
+      border-color: var(--accent);
+    }
+
+    .status-pill {
+      font-size: 11px;
+      padding: 3px 8px;
+      border-radius: 12px;
+      font-weight: 500;
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+    }
+    .status-pill.active { background: rgba(52, 199, 89, 0.15); color: var(--success); }
+    .status-pill.warning { background: rgba(255, 149, 0, 0.15); color: var(--warning); }
+    .status-pill.danger { background: rgba(255, 59, 48, 0.15); color: var(--danger); }
+    .status-dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+
+    nav {
+      display: flex;
+      background: var(--bg);
+      border-radius: 8px;
+      padding: 2px;
+      gap: 2px;
+    }
+
+    .tab-btn {
+      flex: 1;
+      padding: 6px 4px;
+      border: none;
+      background: transparent;
+      color: var(--text-secondary);
+      font-family: var(--font);
+      font-size: 12px;
+      font-weight: 500;
+      border-radius: 6px;
+      cursor: pointer;
+      text-align: center;
+      transition: all 0.15s ease;
+    }
+
+    .tab-btn.active {
+      background: var(--card-bg);
+      color: var(--text);
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+    }
+
+    main {
+      flex: 1;
+      overflow-y: auto;
+      padding: 14px;
+    }
+
+    .tab-pane { display: none; }
+    .tab-pane.active { display: block; }
+
+    .card {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 14px;
+      margin-bottom: 12px;
+      box-shadow: var(--card-shadow);
+    }
+
+    .card-title {
+      font-size: 13px;
+      font-weight: 600;
+      margin-bottom: 6px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .card-subtitle {
+      color: var(--text-secondary);
+      font-size: 12px;
+      margin-bottom: 12px;
+    }
+
+    .alert {
+      padding: 10px 12px;
+      border-radius: 8px;
+      font-size: 12px;
+      margin-bottom: 12px;
+      line-height: 1.4;
+      border: 1px solid transparent;
+    }
+    .alert-warning {
+      background: rgba(255, 149, 0, 0.12);
+      border-color: rgba(255, 149, 0, 0.3);
+      color: var(--text);
+    }
+    .alert-danger {
+      background: rgba(255, 59, 48, 0.12);
+      border-color: rgba(255, 59, 48, 0.3);
+      color: var(--text);
+    }
+    .alert-info {
+      background: var(--accent-light);
+      border-color: rgba(0, 113, 227, 0.2);
+      color: var(--text);
+    }
+
+    .btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      padding: 6px 12px;
+      border-radius: 6px;
+      font-family: var(--font);
+      font-size: 12px;
+      font-weight: 500;
+      border: 1px solid var(--border);
+      background: var(--card-bg);
+      color: var(--text);
+      cursor: pointer;
+      transition: background 0.15s ease;
+    }
+    .btn:hover { background: var(--bg); }
+    .btn-primary {
+      background: var(--accent);
+      border-color: var(--accent);
+      color: white;
+    }
+    .btn-primary:hover { background: var(--accent-hover); }
+    .btn-danger {
+      background: rgba(255, 59, 48, 0.1);
+      border-color: rgba(255, 59, 48, 0.3);
+      color: var(--danger);
+    }
+    .btn-sm { padding: 4px 8px; font-size: 11px; }
+
+    .status-list {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      margin-top: 10px;
+    }
+    .status-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 6px 0;
+      border-bottom: 1px solid var(--border);
+      font-size: 12px;
+    }
+    .status-row:last-child { border-bottom: none; }
+    .status-label { color: var(--text-secondary); }
+    .status-val { font-family: var(--mono); font-size: 11px; }
+
+    /* Vault Table & List */
+    .vault-toolbar {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 10px;
+    }
+    .input-text {
+      flex: 1;
+      padding: 6px 10px;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      background: var(--card-bg);
+      color: var(--text);
+      font-family: var(--font);
+      font-size: 12px;
+      outline: none;
+    }
+    .input-text:focus { border-color: var(--accent); }
+
+    /* Searchable Select Combobox */
+    .searchable-select {
+      position: relative;
+      width: 100%;
+    }
+    .select-trigger {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      cursor: pointer;
+      user-select: none;
+    }
+    .select-dropdown {
+      position: absolute;
+      top: calc(100% + 4px);
+      left: 0;
+      right: 0;
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      box-shadow: 0 6px 18px rgba(0,0,0,0.18);
+      z-index: 100;
+      overflow: hidden;
+    }
+    .select-option {
+      padding: 8px 10px;
+      cursor: pointer;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-bottom: 1px solid var(--border);
+      font-size: 11px;
+      transition: background 0.15s;
+    }
+    .select-option:last-child {
+      border-bottom: none;
+    }
+    .select-option:hover {
+      background: var(--bg);
+    }
+    .select-option.selected {
+      background: var(--accent-light);
+      color: var(--accent);
+      font-weight: 600;
+    }
+
+    .workspaces-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-bottom: 10px;
+    }
+    .ws-chip {
+      padding: 3px 8px;
+      border-radius: 12px;
+      font-size: 11px;
+      border: 1px solid var(--border);
+      background: var(--bg);
+      color: var(--text-secondary);
+      cursor: pointer;
+    }
+    .ws-chip.active {
+      background: var(--accent-light);
+      border-color: var(--accent);
+      color: var(--accent);
+      font-weight: 600;
+    }
+
+    .chat-list {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      max-height: 380px;
+      overflow-y: auto;
+    }
+    .chat-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 8px 10px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: var(--card-bg);
+    }
+    .chat-info {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      overflow: hidden;
+    }
+    .chat-title-row {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .chat-name {
+      font-weight: 500;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      max-width: 240px;
+    }
+    .badge {
+      font-size: 9px;
+      text-transform: uppercase;
+      padding: 1px 5px;
+      border-radius: 4px;
+      font-weight: 600;
+      background: var(--badge-bg);
+      color: var(--text-secondary);
+    }
+    .badge-group { background: rgba(0, 113, 227, 0.15); color: var(--accent); }
+    .chat-meta {
+      font-size: 10px;
+      color: var(--text-secondary);
+      font-family: var(--mono);
+    }
+
+    /* iOS Style Toggle Switch */
+    .switch {
+      position: relative;
+      display: inline-block;
+      width: 36px;
+      height: 20px;
+      flex-shrink: 0;
+    }
+    .switch input { opacity: 0; width: 0; height: 0; }
+    .slider {
+      position: absolute;
+      cursor: pointer;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background-color: var(--border);
+      transition: .2s;
+      border-radius: 20px;
+    }
+    .slider:before {
+      position: absolute;
+      content: "";
+      height: 16px;
+      width: 16px;
+      left: 2px;
+      bottom: 2px;
+      background-color: white;
+      transition: .2s;
+      border-radius: 50%;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+    }
+    input:checked + .slider { background-color: var(--success); }
+    input:checked + .slider:before { transform: translateX(16px); }
+
+    /* Search Results */
+    .search-bar {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 12px;
+    }
+    .results-container {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .episode-card {
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 10px;
+      background: var(--card-bg);
+    }
+    .episode-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 6px;
+    }
+    .episode-chat { font-weight: 600; font-size: 12px; }
+    .score-badge {
+      font-family: var(--mono);
+      font-size: 10px;
+      background: var(--accent-light);
+      color: var(--accent);
+      padding: 2px 6px;
+      border-radius: 4px;
+      font-weight: 500;
+    }
+    .episode-body {
+      font-size: 12px;
+      color: var(--text);
+      white-space: pre-wrap;
+      max-height: 120px;
+      overflow-y: auto;
+      margin-bottom: 8px;
+      line-height: 1.4;
+      padding: 6px 8px;
+      background: var(--bg);
+      border-radius: 6px;
+    }
+    .citations-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 4px;
+      margin-top: 6px;
+    }
+    .citation-chip {
+      font-family: var(--mono);
+      font-size: 10px;
+      background: var(--badge-bg);
+      padding: 2px 6px;
+      border-radius: 4px;
+      cursor: pointer;
+      border: 1px solid transparent;
+      transition: all 0.15s;
+    }
+    .citation-chip:hover {
+      border-color: var(--accent);
+      background: var(--accent-light);
+      color: var(--accent);
+    }
+
+    .thread-toggle {
+      font-size: 11px;
+      color: var(--accent);
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      margin-top: 6px;
+      background: none;
+      border: none;
+      padding: 0;
+    }
+    .thread-view {
+      display: none;
+      margin-top: 8px;
+      padding: 8px;
+      background: var(--bg);
+      border-radius: 6px;
+      font-size: 11px;
+      font-family: var(--mono);
+      white-space: pre-wrap;
+      max-height: 160px;
+      overflow-y: auto;
+    }
+
+    /* Review Box */
+    .draft-card {
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 12px;
+      background: var(--card-bg);
+      margin-bottom: 10px;
+    }
+    .draft-meta-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 8px;
+    }
+    .draft-status {
+      font-size: 10px;
+      font-weight: 600;
+      padding: 2px 6px;
+      border-radius: 4px;
+      text-transform: uppercase;
+    }
+    .draft-status.STAGED_FOR_REVIEW { background: rgba(255, 149, 0, 0.15); color: var(--warning); }
+    .draft-status.APPROVED_BY_USER { background: rgba(52, 199, 89, 0.15); color: var(--success); }
+    .draft-status.REJECTED_BY_USER { background: rgba(255, 59, 48, 0.15); color: var(--danger); }
+
+    .tone-badge {
+      font-size: 10px;
+      padding: 2px 6px;
+      background: var(--badge-bg);
+      border-radius: 4px;
+      color: var(--text-secondary);
+    }
+    .draft-content {
+      font-size: 12px;
+      padding: 8px;
+      background: var(--bg);
+      border-radius: 6px;
+      line-height: 1.45;
+      margin-bottom: 10px;
+      user-select: text;
+      -webkit-user-select: text;
+    }
+    .draft-actions {
+      display: flex;
+      gap: 6px;
+      justify-content: flex-end;
+    }
+
+    /* Toast notification */
+    #toast {
+      position: fixed;
+      bottom: 16px;
+      left: 50%;
+      transform: translateX(-50%) translateY(60px);
+      background: rgba(0, 0, 0, 0.85);
+      color: white;
+      padding: 6px 14px;
+      border-radius: 20px;
+      font-size: 11px;
+      font-weight: 500;
+      opacity: 0;
+      transition: all 0.25s ease;
+      pointer-events: none;
+      z-index: 1000;
+    }
+    #toast.show {
+      transform: translateX(-50%) translateY(0);
+      opacity: 1;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="header-top">
+      <div class="brand">
+        <svg class="brand-icon" viewBox="0 0 24 24">
+          <path d="M12 2C6.48 2 2 6.48 2 12c0 1.82.49 3.53 1.34 5L2 22l5.22-1.31c1.42.76 3.04 1.31 4.78 1.31 5.52 0 10-4.48 10-10S17.52 2 12 2zm1 14h-2v-2h2v2zm0-4h-2V7h2v5z"/>
+        </svg>
+        <div class="brand-title">Total Recall</div>
+      </div>
+      <div class="header-controls">
+        <select id="model-select" class="model-select" onchange="switchModel(this.value)" title="Active LLM Model">
+          <option value="">Loading models...</option>
+        </select>
+        <div id="status-pill" class="status-pill active">
+          <span class="status-dot"></span>
+          <span id="status-text">Ready</span>
+        </div>
+      </div>
+    </div>
+    <nav>
+      <button class="tab-btn active" onclick="switchTab('onboarding')">🛡️ Onboarding</button>
+      <button class="tab-btn" onclick="switchTab('vault')">🗄️ Vault</button>
+      <button class="tab-btn" onclick="switchTab('search')">🔍 Search</button>
+      <button class="tab-btn" onclick="switchTab('review')">✍️ Review Box</button>
+    </nav>
+  </header>
+
+  <main>
+    <!-- TAB 1: ONBOARDING -->
+    <section id="tab-onboarding" class="tab-pane active">
+      <div class="card">
+        <div class="card-title">
+          <span>macOS Catalyst Container Status</span>
+          <button class="btn btn-sm" onclick="fetchStatus(true)">🔄 Refresh</button>
+        </div>
+        <div class="card-subtitle">Zero-cost local CoreData snapshot reader</div>
+
+        <div id="permission-alert" class="alert alert-warning" style="display:none;">
+          <strong>Full Disk Access Required</strong><br>
+          Total Recall needs Full Disk Access to passively read WhatsApp's unencrypted local snapshot without network traffic or QR pairing.
+          <div style="margin-top: 8px;">
+            <button class="btn btn-primary btn-sm" onclick="openFullDiskAccessSettings()">Open Privacy Settings</button>
+          </div>
+        </div>
+
+        <div class="status-list">
+          <div class="status-row">
+            <span class="status-label">App Group Container</span>
+            <span id="stat-group-dir" class="status-val">-</span>
+          </div>
+          <div class="status-row">
+            <span class="status-label">ChatStorage.sqlite</span>
+            <span id="stat-chat-storage" class="status-val">-</span>
+          </div>
+          <div class="status-row">
+            <span class="status-label">ContactsV2.sqlite</span>
+            <span id="stat-contacts" class="status-val">-</span>
+          </div>
+          <div class="status-row">
+            <span class="status-label">FDA Permission</span>
+            <span id="stat-permission" class="status-val">-</span>
+          </div>
+          <div class="status-row">
+            <span class="status-label">Indexed Messages</span>
+            <span id="stat-indexed-msgs" class="status-val">-</span>
+          </div>
+          <div class="status-row">
+            <span class="status-label">Approved Chats</span>
+            <span id="stat-approved-chats" class="status-val">-</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">Security & Architecture Guarantees</div>
+        <div class="status-list">
+          <div class="status-row">
+            <span class="status-label">Concurrency</span>
+            <span class="status-val" style="color:var(--success)">mode=ro&immutable=1 (Lock-free)</span>
+          </div>
+          <div class="status-row">
+            <span class="status-label">Network Egress</span>
+            <span class="status-val" style="color:var(--success)">0 KB (100% On-Device Localhost)</span>
+          </div>
+          <div class="status-row">
+            <span class="status-label">Revocations</span>
+            <span class="status-val" style="color:var(--success)">PRAGMA secure_delete = ON</span>
+          </div>
+          <div class="status-row">
+            <span class="status-label">Outbound Sending</span>
+            <span class="status-val" style="color:var(--warning)">Prohibited (Human-In-The-Loop Copy Only)</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- TAB 2: OPT-IN CHAT VAULT -->
+    <section id="tab-vault" class="tab-pane">
+      <div class="card">
+        <div class="card-title">
+          <span>Opt-In Chat Vault</span>
+          <span class="badge" style="background:rgba(52,199,89,0.15);color:var(--success)">Default-Zero Policy</span>
+        </div>
+        <div class="card-subtitle">Only explicitly approved chats enter the active search index.</div>
+
+        <div class="workspaces-row" id="workspaces-bar">
+          <!-- Workspaces loaded dynamically -->
+        </div>
+
+        <div class="vault-toolbar">
+          <input type="text" id="vault-filter" class="input-text" placeholder="Filter chats by name or JID..." oninput="filterVaultList()">
+          <button class="btn btn-sm btn-primary" onclick="bulkToggleVault(true)">Select All</button>
+          <button class="btn btn-sm" onclick="bulkToggleVault(false)">Deselect All</button>
+          <button class="btn btn-sm" onclick="fetchVault(true)">🔄 Reload</button>
+        </div>
+
+        <div class="chat-list" id="chat-list-container">
+          <div style="text-align:center;padding:20px;color:var(--text-secondary)">Loading discovered chats...</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- TAB 3: HYBRID SEARCH -->
+    <section id="tab-search" class="tab-pane">
+      <div class="card">
+        <div class="card-title">Instant Hybrid Search (FTS5 + Vector RRF)</div>
+        <div class="search-bar">
+          <input type="text" id="search-input" class="input-text" placeholder="Search conversations, commitments, decisions..." onkeydown="if(event.key==='Enter') executeSearch()">
+          <button class="btn btn-primary" onclick="executeSearch()">Search</button>
+        </div>
+        <div id="search-summary" class="card-subtitle" style="display:none;"></div>
+      </div>
+
+      <div class="results-container" id="search-results">
+        <div style="text-align:center;padding:30px;color:var(--text-secondary)">Type a query above to search conversational episodes with verbatim citations.</div>
+      </div>
+    </section>
+
+    <!-- TAB 4: REVIEW BOX -->
+    <section id="tab-review" class="tab-pane">
+      <div class="alert alert-info">
+        <strong>⚠️ Structural Prohibition Against Autonomous Sending</strong><br>
+        All drafted replies are staged strictly for human inspection and manual clipboard copy. AI cannot speak on your behalf.
+      </div>
+
+      <div class="card">
+        <div class="card-title">
+          <span>Stage New Reply Draft</span>
+          <button class="btn btn-sm btn-primary" onclick="stageNewDraft()">Generate Draft</button>
+        </div>
+        <div style="display:flex;flex-direction:column;gap:8px;margin-top:8px;">
+          <div class="searchable-select" id="chat-picker-wrapper">
+            <input type="hidden" id="new-draft-jid" value="">
+            <div class="select-trigger input-text" onclick="toggleChatDropdown(event)">
+              <span id="selected-chat-label" style="color:var(--text-secondary)">Select a conversation to reply to...</span>
+              <span style="font-size:10px;opacity:0.6;">▼</span>
+            </div>
+            <div class="select-dropdown" id="chat-dropdown-panel" style="display:none;" onclick="event.stopPropagation()">
+              <div style="padding:6px;border-bottom:1px solid var(--border);">
+                <input type="text" id="chat-picker-search" class="input-text" placeholder="Search chats by name or JID..." oninput="filterChatDropdown(this.value)">
+              </div>
+              <div class="select-options-list" id="chat-picker-options" style="max-height:180px;overflow-y:auto;">
+                <!-- Populated dynamically -->
+              </div>
+            </div>
+          </div>
+          <textarea id="new-draft-bullets" class="input-text" rows="3" placeholder="Enter intent bullet points (one per line):&#10;• Can meet tomorrow at 3pm&#10;• Will send slide deck beforehand" style="resize:vertical"></textarea>
+        </div>
+      </div>
+
+      <div class="card-title" style="margin: 12px 0 8px;">Staged Drafts</div>
+      <div class="vault-toolbar">
+        <input type="text" id="drafts-filter" class="input-text" placeholder="Filter drafts by chat, intent, or text..." oninput="filterDraftsList()">
+        <button class="btn btn-sm" onclick="fetchDrafts(true)">🔄 Reload</button>
+      </div>
+      <div id="drafts-list-container">
+        <div style="text-align:center;padding:20px;color:var(--text-secondary)">Loading staged drafts...</div>
+      </div>
+    </section>
+  </main>
+
+  <div id="toast">Copied to clipboard</div>
+
+  <script>
+    let vaultData = { approved_chat_jids: [], workspaces: {}, active_workspaces: [], discovered_chats: [] };
+
+    function showToast(msg) {
+      const toast = document.getElementById('toast');
+      toast.textContent = msg;
+      toast.classList.add('show');
+      setTimeout(() => toast.classList.remove('show'), 2000);
+    }
+
+    function switchTab(tabId) {
+      document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+      document.querySelectorAll('.tab-pane').forEach(pane => pane.classList.remove('active'));
+
+      const activeBtn = Array.from(document.querySelectorAll('.tab-btn')).find(b => b.getAttribute('onclick').includes(tabId));
+      if (activeBtn) activeBtn.classList.add('active');
+
+      const activePane = document.getElementById(`tab-${tabId}`);
+      if (activePane) activePane.classList.add('active');
+
+      if (tabId === 'onboarding') fetchStatus();
+      if (tabId === 'vault') fetchVault();
+      if (tabId === 'review') fetchDrafts();
+    }
+
+    async function fetchStatus(notify = false) {
+      try {
+        const res = await fetch('/api/status');
+        const data = await res.json();
+
+        document.getElementById('stat-group-dir').textContent = data.group_dir ? '✓ Detected' : '✗ Missing';
+        document.getElementById('stat-chat-storage').textContent = data.chat_storage ? '✓ Accessible' : '✗ Missing';
+        document.getElementById('stat-contacts').textContent = data.contacts ? '✓ Accessible' : '✗ Missing';
+
+        const permEl = document.getElementById('stat-permission');
+        const alertEl = document.getElementById('permission-alert');
+        const statusPill = document.getElementById('status-pill');
+        const statusText = document.getElementById('status-text');
+
+        if (data.has_permission && data.chat_storage) {
+          permEl.textContent = '✓ Granted';
+          permEl.style.color = 'var(--success)';
+          alertEl.style.display = 'none';
+          statusPill.className = 'status-pill active';
+          statusText.textContent = 'Active';
+        } else {
+          permEl.textContent = '✗ Denied';
+          permEl.style.color = 'var(--danger)';
+          alertEl.style.display = 'block';
+          statusPill.className = 'status-pill warning';
+          statusText.textContent = 'FDA Needed';
+        }
+
+        document.getElementById('stat-indexed-msgs').textContent = (data.indexed_messages || 0).toLocaleString();
+        document.getElementById('stat-approved-chats').textContent = (data.approved_chats || 0).toLocaleString();
+        if (notify) {
+          showToast(data.has_permission ? 'Status refreshed (Active)' : 'Status refreshed (FDA Needed)');
+        }
+      } catch (e) {
+        console.error('Error fetching status', e);
+        if (notify) showToast('Error refreshing status');
+      }
+    }
+
+    function openFullDiskAccessSettings() {
+      fetch('/api/open-privacy-settings', { method: 'POST' }).catch(() => {});
+      window.location.href = 'x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles';
+    }
+
+    async function fetchVault(notify = false) {
+      try {
+        const res = await fetch('/api/vault');
+        vaultData = await res.json();
+        renderWorkspaces();
+        renderVaultList();
+        renderChatDropdownOptions();
+        if (notify) {
+          showToast(`Vault refreshed (${(vaultData.approved_chat_jids || []).length} approved)`);
+        }
+      } catch (e) {
+        console.error('Error fetching vault', e);
+        if (notify) showToast('Error refreshing vault');
+      }
+    }
+
+    function renderWorkspaces() {
+      const bar = document.getElementById('workspaces-bar');
+      bar.innerHTML = '';
+
+      const allChip = document.createElement('div');
+      allChip.className = 'ws-chip active';
+      allChip.textContent = 'All Chats';
+      allChip.onclick = () => {
+        document.getElementById('vault-filter').value = '';
+        renderVaultList();
+      };
+      bar.appendChild(allChip);
+
+      const wsList = Object.keys(vaultData.workspaces || {});
+      wsList.forEach(ws => {
+        const chip = document.createElement('div');
+        const isActive = (vaultData.active_workspaces || []).includes(ws);
+        chip.className = `ws-chip ${isActive ? 'active' : ''}`;
+        chip.textContent = `${isActive ? '● ' : ''}${ws}`;
+        chip.onclick = () => toggleWorkspace(ws);
+        bar.appendChild(chip);
+      });
+    }
+
+    async function toggleWorkspace(name) {
+      try {
+        const res = await fetch('/api/vault/workspace', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name })
+        });
+        const data = await res.json();
+        vaultData.active_workspaces = data.active_workspaces;
+        renderWorkspaces();
+        fetchVault();
+      } catch (e) {
+        console.error(e);
+      }
+    }
+
+    function filterVaultList() {
+      renderVaultList();
+    }
+
+    function renderVaultList() {
+      const container = document.getElementById('chat-list-container');
+      const filter = (document.getElementById('vault-filter').value || '').toLowerCase();
+      const chats = vaultData.discovered_chats || [];
+
+      const filtered = chats.filter(c =>
+        (c.chat_name || '').toLowerCase().includes(filter) ||
+        (c.chat_jid || '').toLowerCase().includes(filter)
+      );
+
+      if (filtered.length === 0) {
+        container.innerHTML = '<div style="text-align:center;padding:20px;color:var(--text-secondary)">No chats found.</div>';
+        return;
+      }
+
+      container.innerHTML = filtered.map(c => `
+        <div class="chat-item">
+          <div class="chat-info">
+            <div class="chat-title-row">
+              <span class="chat-name">${escapeHtml(c.chat_name || c.chat_jid)}</span>
+              <span class="badge ${c.is_group ? 'badge-group' : ''}">${c.is_group ? 'Group' : '1:1'}</span>
+            </div>
+            <div class="chat-meta">${escapeHtml(c.chat_jid)} • ${(c.message_count || 0).toLocaleString()} msgs</div>
+          </div>
+          <label class="switch">
+            <input type="checkbox" ${c.is_approved ? 'checked' : ''} onchange="toggleChatApproval('${c.chat_jid}', this.checked)">
+            <span class="slider"></span>
+          </label>
+        </div>
+      `).join('');
+    }
+
+    async function toggleChatApproval(jid, approved) {
+      try {
+        await fetch('/api/vault/approve', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ chat_jid: jid, approved })
+        });
+        showToast(approved ? `Approved ${jid}` : `Revoked ${jid}`);
+      } catch (e) {
+        console.error(e);
+        showToast('Error updating vault approval');
+      }
+    }
+
+    async function bulkToggleVault(approved) {
+      const chats = vaultData.discovered_chats || [];
+      if (chats.length === 0) return;
+      const jids = chats.map(c => c.chat_jid);
+      try {
+        await fetch('/api/vault/bulk', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ approved, chat_jids: jids })
+        });
+        showToast(approved ? 'All chats selected' : 'All chats deselected');
+        fetchVault();
+      } catch (e) {
+        console.error(e);
+        showToast('Error updating vault');
+      }
+    }
+
+    async function executeSearch() {
+      const q = document.getElementById('search-input').value.trim();
+      if (!q) return;
+
+      const resultsContainer = document.getElementById('search-results');
+      resultsContainer.innerHTML = '<div style="text-align:center;padding:20px;color:var(--text-secondary)">Running hybrid search...</div>';
+
+      try {
+        const res = await fetch(`/api/search?q=${encodeURIComponent(q)}&limit=10`);
+        const data = await res.json();
+
+        const summaryEl = document.getElementById('search-summary');
+        summaryEl.style.display = 'block';
+        summaryEl.textContent = `Found ${data.count} episodes merged via Reciprocal Rank Fusion (RRF)`;
+
+        if (!data.results || data.results.length === 0) {
+          resultsContainer.innerHTML = '<div style="text-align:center;padding:20px;color:var(--text-secondary)">No matching episodes found.</div>';
+          return;
+        }
+
+        resultsContainer.innerHTML = data.results.map((r, i) => `
+          <div class="episode-card">
+            <div class="episode-header">
+              <div class="episode-chat">${escapeHtml(r.chat_name)}</div>
+              <div class="score-badge">RRF: ${(r.rrf_score || 0).toFixed(4)}</div>
+            </div>
+            <div class="episode-body">${escapeHtml(r.content)}</div>
+            <div class="citations-row">
+              ${(r.citations || []).map(cit => `
+                <span class="citation-chip" title="Click to copy exact citation" onclick="copyCitation('${escapeHtml(cit.citation_str)}')">${escapeHtml(cit.citation_str)}</span>
+              `).join('')}
+            </div>
+            <button class="thread-toggle" onclick="toggleThreadContext(${r.message_ids && r.message_ids[0] ? r.message_ids[0] : 0}, this)">
+              <span>▼</span> Show Thread Context (DAG)
+            </button>
+            <div class="thread-view"></div>
+          </div>
+        `).join('');
+      } catch (e) {
+        console.error(e);
+        resultsContainer.innerHTML = '<div style="text-align:center;padding:20px;color:var(--danger)">Search error</div>';
+      }
+    }
+
+    function copyCitation(str) {
+      navigator.clipboard.writeText(str).then(() => {
+        showToast('Citation copied: ' + str);
+      });
+    }
+
+    async function toggleThreadContext(msgId, btn) {
+      const view = btn.nextElementSibling;
+      if (view.style.display === 'block') {
+        view.style.display = 'none';
+        btn.querySelector('span').textContent = '▼';
+        return;
+      }
+
+      view.style.display = 'block';
+      view.textContent = 'Loading reply DAG hierarchy...';
+      btn.querySelector('span').textContent = '▲';
+
+      try {
+        const res = await fetch(`/api/thread/${msgId}`);
+        const data = await res.json();
+        if (data.rendered_tree) {
+          view.textContent = data.rendered_tree;
+        } else if (data.messages) {
+          view.textContent = data.messages.map(m => `[${m.iso_date}] ${m.sender_name}: ${m.text}`).join('\n');
+        } else {
+          view.textContent = 'No thread context available.';
+        }
+      } catch (e) {
+        view.textContent = 'Error loading thread context.';
+      }
+    }
+
+    let stagedDrafts = [];
+
+    async function fetchDrafts(notify = false) {
+      const container = document.getElementById('drafts-list-container');
+      try {
+        const res = await fetch('/api/drafts');
+        const data = await res.json();
+        stagedDrafts = data.drafts || [];
+        renderDraftsList();
+        if (notify) {
+          showToast(`Drafts refreshed (${stagedDrafts.length} staged)`);
+        }
+      } catch (e) {
+        console.error(e);
+        container.innerHTML = '<div style="text-align:center;padding:20px;color:var(--danger)">Error fetching drafts</div>';
+        if (notify) showToast('Error refreshing drafts');
+      }
+    }
+
+    function filterDraftsList() {
+      renderDraftsList();
+    }
+
+    function renderDraftsList() {
+      const container = document.getElementById('drafts-list-container');
+      const filter = (document.getElementById('drafts-filter')?.value || '').toLowerCase().trim();
+      const drafts = stagedDrafts || [];
+
+      const filtered = drafts.filter(d =>
+        (d.chat_jid || '').toLowerCase().includes(filter) ||
+        (d.draft_text || '').toLowerCase().includes(filter) ||
+        (d.intent_bullets || []).some(b => (b || '').toLowerCase().includes(filter))
+      );
+
+      if (filtered.length === 0) {
+        container.innerHTML = filter
+          ? '<div style="text-align:center;padding:20px;color:var(--text-secondary)">No matching drafts found.</div>'
+          : '<div style="text-align:center;padding:20px;color:var(--text-secondary)">No staged drafts. Generate one above.</div>';
+        return;
+      }
+
+      container.innerHTML = filtered.map(d => `
+        <div class="draft-card">
+          <div class="draft-meta-row">
+            <span class="tone-badge">${escapeHtml(d.chat_jid)}</span>
+            <span style="font-size:10px;color:var(--text-secondary);">${escapeHtml(d.iso_date || '')}</span>
+          </div>
+          ${d.intent_bullets && d.intent_bullets.length ? `
+            <div style="font-size:11px;color:var(--text-secondary);margin-bottom:6px;">
+              <strong>Intent:</strong> ${d.intent_bullets.map(b => escapeHtml(b)).join('; ')}
+            </div>
+          ` : ''}
+          <div class="draft-content">${escapeHtml(d.draft_text)}</div>
+          <div class="draft-actions">
+            <button class="btn btn-sm btn-primary" onclick="copyDraft('${escapeHtml(d.draft_text)}')">📋 Copy</button>
+            <button class="btn btn-sm btn-danger" onclick="deleteDraft('${d.draft_id}')">🗑️ Delete</button>
+          </div>
+        </div>
+      `).join('');
+    }
+
+    function copyDraft(text) {
+      navigator.clipboard.writeText(text).then(() => {
+        showToast('Draft copied to clipboard!');
+      });
+    }
+
+    async function approveDraft(draftId) {
+      try {
+        await fetch(`/api/drafts/${draftId}/approve`, { method: 'POST' });
+        showToast('Draft approved!');
+        fetchDrafts();
+      } catch (e) {
+        showToast('Error approving draft');
+      }
+    }
+
+    async function rejectDraft(draftId) {
+      try {
+        await fetch(`/api/drafts/${draftId}/reject`, { method: 'POST' });
+        showToast('Draft rejected');
+        fetchDrafts();
+      } catch (e) {
+        showToast('Error rejecting draft');
+      }
+    }
+
+    async function deleteDraft(draftId) {
+      try {
+        await fetch(`/api/drafts/${draftId}/delete`, { method: 'POST' });
+        showToast('Draft deleted');
+        fetchDrafts();
+      } catch (e) {
+        showToast('Error deleting draft');
+      }
+    }
+
+    function toggleChatDropdown(e) {
+      if (e) e.stopPropagation();
+      const panel = document.getElementById('chat-dropdown-panel');
+      const isVisible = panel.style.display !== 'none';
+      if (isVisible) {
+        panel.style.display = 'none';
+      } else {
+        panel.style.display = 'block';
+        const searchInput = document.getElementById('chat-picker-search');
+        if (searchInput) {
+          searchInput.value = '';
+          searchInput.focus();
+        }
+        renderChatDropdownOptions();
+      }
+    }
+
+    function closeChatDropdown() {
+      const panel = document.getElementById('chat-dropdown-panel');
+      if (panel) panel.style.display = 'none';
+    }
+
+    document.addEventListener('click', (e) => {
+      const wrapper = document.getElementById('chat-picker-wrapper');
+      if (wrapper && !wrapper.contains(e.target)) {
+        closeChatDropdown();
+      }
+    });
+
+    function filterChatDropdown(query) {
+      renderChatDropdownOptions(query);
+    }
+
+    function renderChatDropdownOptions(query = '') {
+      const list = document.getElementById('chat-picker-options');
+      if (!list) return;
+      const chats = vaultData.discovered_chats || [];
+      const q = (query || '').toLowerCase().trim();
+      const filtered = chats.filter(c =>
+        (c.chat_name || '').toLowerCase().includes(q) ||
+        (c.chat_jid || '').toLowerCase().includes(q)
+      );
+
+      if (filtered.length === 0) {
+        list.innerHTML = '<div style="padding:12px;text-align:center;color:var(--text-secondary);font-size:11px;">No matching chats found</div>';
+        return;
+      }
+
+      const selectedJid = document.getElementById('new-draft-jid').value;
+      list.innerHTML = filtered.map(c => `
+        <div class="select-option ${c.chat_jid === selectedJid ? 'selected' : ''}" onclick="selectChatForDraft('${escapeHtml(c.chat_jid)}', '${escapeHtml(c.chat_name || c.chat_jid)}', ${c.is_group})">
+          <div style="display:flex;flex-direction:column;gap:2px;overflow:hidden;">
+            <div style="display:flex;align-items:center;gap:6px;">
+              <span style="font-weight:600;">${escapeHtml(c.chat_name || c.chat_jid)}</span>
+              <span class="badge ${c.is_group ? 'badge-group' : ''}">${c.is_group ? 'Group' : '1:1'}</span>
+            </div>
+            <span style="font-size:10px;color:var(--text-secondary);font-family:var(--mono);">${escapeHtml(c.chat_jid)}</span>
+          </div>
+          <span style="font-size:10px;color:var(--text-secondary);">${(c.message_count || 0).toLocaleString()} msgs</span>
+        </div>
+      `).join('');
+    }
+
+    function selectChatForDraft(jid, name, isGroup) {
+      document.getElementById('new-draft-jid').value = jid;
+      const label = document.getElementById('selected-chat-label');
+      label.innerHTML = `<span style="font-weight:600;color:var(--text);">${escapeHtml(name)}</span> <span class="badge ${isGroup ? 'badge-group' : ''}" style="margin:0 4px;">${isGroup ? 'Group' : '1:1'}</span> <span style="font-size:10px;color:var(--text-secondary);font-family:var(--mono);">${escapeHtml(jid)}</span>`;
+      closeChatDropdown();
+    }
+
+    async function stageNewDraft() {
+      const jid = document.getElementById('new-draft-jid').value.trim();
+      const bulletsText = document.getElementById('new-draft-bullets').value.trim();
+
+      if (!jid || !bulletsText) {
+        showToast('Please select a Conversation and enter intent bullets.');
+        return;
+      }
+
+      const bullets = bulletsText.split('\n').map(b => b.replace(/^[•\-\*]\s*/, '').trim()).filter(Boolean);
+
+      try {
+        showToast('Synthesizing draft...');
+        const activeModel = (document.getElementById('model-select') || {}).value || '';
+        const res = await fetch('/api/drafts/stage', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ chat_jid: jid, intent_bullets: bullets, model: activeModel })
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          showToast('Error: ' + (data.error || 'Failed to synthesize draft'));
+          return;
+        }
+        showToast('Draft staged for review!');
+        document.getElementById('new-draft-bullets').value = '';
+        fetchDrafts();
+      } catch (e) {
+        console.error(e);
+        showToast('Error staging draft: ' + (e.message || e));
+      }
+    }
+
+    function escapeHtml(str) {
+      if (!str) return '';
+      return String(str)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#039;');
+    }
+
+    async function fetchModels() {
+      try {
+        const res = await fetch('/api/models');
+        const data = await res.json();
+        const select = document.getElementById('model-select');
+        select.innerHTML = (data.models || []).map(m =>
+          `<option value="${escapeHtml(m)}" ${m === data.current_model ? 'selected' : ''}>🤖 ${escapeHtml(m)}</option>`
+        ).join('');
+      } catch (e) {
+        console.error('Error fetching models', e);
+      }
+    }
+
+    async function switchModel(model) {
+      if (!model) return;
+      try {
+        const res = await fetch('/api/models', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ model })
+        });
+        const data = await res.json();
+        showToast('Active model set to: ' + data.current_model);
+      } catch (e) {
+        console.error(e);
+        showToast('Error switching model');
+      }
+    }
+
+    // Auto load status on init
+    window.addEventListener('DOMContentLoaded', () => {
+      fetchStatus();
+      fetchVault();
+      fetchModels();
+    });
+  </script>
+</body>
+</html>

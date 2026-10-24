@@ -344,8 +344,8 @@ def test_review_box_sqlite_check_constraint():
             INSERT INTO staged_drafts (
                 draft_id, chat_jid, created_at, iso_date, thread_root_pk,
                 unanswered_questions_json, intent_bullets_json, tone_summary,
-                draft_text, status, is_sent
-            ) VALUES ('test', 'c1', 1000.0, '2026-10-24', NULL, '[]', '[]', '{}', 'draft', 'STAGED_FOR_REVIEW', 1)
+                draft_text, is_sent
+            ) VALUES ('test', 'c1', 1000.0, '2026-10-24', NULL, '[]', '[]', '{}', 'draft', 1)
             """
         )
 
@@ -378,13 +378,10 @@ def test_review_box_stage_approve_reject_workflow():
     assert retrieved.draft_id == "drf_test01"
     assert retrieved.status == DraftStatus.STAGED_FOR_REVIEW
 
-    # Approve
-    approved = box.approve("drf_test01")
-    assert approved.status == DraftStatus.APPROVED_BY_USER
-
-    # Reject
-    rejected = box.reject("drf_test01")
-    assert rejected.status == DraftStatus.REJECTED_BY_USER
+    # Delete
+    deleted = box.delete("drf_test01")
+    assert deleted is True
+    assert box.get("drf_test01") is None
 
 
 # ==============================================================================
@@ -573,11 +570,11 @@ def test_cli_draft_list_and_approve(tmp_path: Path):
     with redirect_stdout(appr_buf):
         ret_appr = cli_main(["draft", "--db", str(db_path), "--approve", draft_id])
     assert ret_appr == 0
-    assert "APPROVED_BY_USER" in appr_buf.getvalue()
+    assert "ready for manual copy-paste" in appr_buf.getvalue()
 
     # 4. Reject draft
     rej_buf = io.StringIO()
     with redirect_stdout(rej_buf):
         ret_rej = cli_main(["draft", "--db", str(db_path), "--reject", draft_id])
     assert ret_rej == 0
-    assert "REJECTED_BY_USER" in rej_buf.getvalue()
+    assert "rejected and deleted" in rej_buf.getvalue()
