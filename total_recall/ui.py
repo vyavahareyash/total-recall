@@ -818,6 +818,18 @@ def run_ui_server(
         binary = APPS_DIR / "TotalRecallBar"
         if not binary.exists():
             binary = build_native_menu_bar_app()
+        if not binary or not binary.exists():
+            which_tr = shutil.which("TotalRecallBar")
+            candidates = [
+                Path(which_tr) if which_tr else None,
+                Path("/Applications/TotalRecallBar.app/Contents/MacOS/TotalRecallBar"),
+                Path.home()
+                / "Applications/TotalRecallBar.app/Contents/MacOS/TotalRecallBar",
+            ]
+            for cand in candidates:
+                if cand and cand.exists() and os.access(cand, os.X_OK):
+                    binary = cand
+                    break
         if binary and binary.exists() and os.access(binary, os.X_OK):
             try:
                 subprocess.Popen([str(binary), url])

@@ -273,14 +273,26 @@ def build_parser() -> argparse.ArgumentParser:
         "approve",
         help="Approve one or more chat JIDs in the vault",
     )
-    approve_sub.add_argument("jids", nargs="+", help="Chat JIDs to approve")
+    approve_sub.add_argument("jids", nargs="*", default=[], help="Chat JIDs to approve")
+    approve_sub.add_argument(
+        "--all",
+        action="store_true",
+        default=False,
+        help="Approve all discovered chats from WhatsApp storage",
+    )
 
     # vault revoke <jids...>
     revoke_sub = vault_subparsers.add_parser(
         "revoke",
         help="Revoke approval for one or more chat JIDs in the vault",
     )
-    revoke_sub.add_argument("jids", nargs="+", help="Chat JIDs to revoke")
+    revoke_sub.add_argument("jids", nargs="*", default=[], help="Chat JIDs to revoke")
+    revoke_sub.add_argument(
+        "--all",
+        action="store_true",
+        default=False,
+        help="Revoke all approved chats from the vault",
+    )
 
     # vault workspace [list|create|toggle]
     ws_sub = vault_subparsers.add_parser(
@@ -1115,20 +1127,55 @@ def run_vault(args: argparse.Namespace) -> int:
     cmd = args.vault_command
 
     if cmd == "approve":
-        for jid in args.jids:
+        jids_to_approve = list(args.jids)
+        if getattr(args, "all", False):
+            source, contacts = _resolve_source_and_contacts(
+                getattr(args, "source", None), getattr(args, "contacts", None)
+            )
+            if not source or not source.exists():
+                print(
+                    "Error: ChatStorage.sqlite not found. Specify --source explicitly.",
+                    file=sys.stderr,
+                )
+                return 1
+            engine = IngestionEngine(source, contacts)
+            report = engine.discover_chats()
+            for chat in report.chats:
+                if chat.chat_jid not in jids_to_approve:
+                    jids_to_approve.append(chat.chat_jid)
+
+        if not jids_to_approve:
+            print(
+                "Error: Specify chat JID(s) or pass --all to approve all discovered chats.",
+                file=sys.stderr,
+            )
+            return 1
+
+        for jid in jids_to_approve:
             config.approve(jid)
         config.save(vault_path)
-        print(f"Approved {len(args.jids)} chat(s) in vault '{vault_path}':")
-        for jid in args.jids:
+        print(f"Approved {len(jids_to_approve)} chat(s) in vault '{vault_path}':")
+        for jid in jids_to_approve:
             print(f"  + {jid}")
         return 0
 
     if cmd == "revoke":
-        for jid in args.jids:
+        jids_to_revoke = list(args.jids)
+        if getattr(args, "all", False):
+            jids_to_revoke = list(config.approved_chat_jids)
+
+        if not jids_to_revoke:
+            print(
+                "Error: Specify chat JID(s) or pass --all to revoke all approved chats.",
+                file=sys.stderr,
+            )
+            return 1
+
+        for jid in jids_to_revoke:
             config.revoke(jid)
         config.save(vault_path)
-        print(f"Revoked {len(args.jids)} chat(s) from vault '{vault_path}':")
-        for jid in args.jids:
+        print(f"Revoked {len(jids_to_revoke)} chat(s) from vault '{vault_path}':")
+        for jid in jids_to_revoke:
             print(f"  - {jid}")
         return 0
 

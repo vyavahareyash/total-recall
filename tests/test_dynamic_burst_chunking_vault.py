@@ -694,3 +694,48 @@ def test_cli_vault_and_ingest_e2e(
     ep_out = buf_ep.getvalue()
     assert "Found 1 matching episodes" in ep_out
     assert "Alice Smith" in ep_out
+
+
+def test_cli_vault_approve_all_and_revoke_all(
+    synthetic_vault_fixture: tuple[Path, Path], tmp_path: Path
+):
+    """Verify 'vault approve --all' approves all discovered chats and 'vault revoke --all' clears them."""
+    chat_storage, contacts = synthetic_vault_fixture
+    vault_file = tmp_path / "test_vault_all.json"
+
+    # 1. Approve all
+    buf_app = io.StringIO()
+    with redirect_stdout(buf_app):
+        code_app = cli_main(
+            [
+                "vault",
+                "--vault",
+                str(vault_file),
+                "--source",
+                str(chat_storage),
+                "--contacts",
+                str(contacts),
+                "approve",
+                "--all",
+            ]
+        )
+    assert code_app == 0
+    vault = VaultConfig.load(vault_file)
+    assert vault.is_chat_approved("14155550101@s.whatsapp.net")
+    assert vault.is_chat_approved("14155550102@s.whatsapp.net")
+
+    # 2. Revoke all
+    buf_rev = io.StringIO()
+    with redirect_stdout(buf_rev):
+        code_rev = cli_main(
+            [
+                "vault",
+                "--vault",
+                str(vault_file),
+                "revoke",
+                "--all",
+            ]
+        )
+    assert code_rev == 0
+    vault_empty = VaultConfig.load(vault_file)
+    assert len(vault_empty.approved_chat_jids) == 0
