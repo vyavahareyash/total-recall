@@ -102,27 +102,19 @@ def check_docs() -> None:
 
 
 def check_workflow() -> None:
-    workflow_yaml = REPO_ROOT / ".github" / "workflows" / "release.yaml"
     workflow_yml = REPO_ROOT / ".github" / "workflows" / "release.yml"
 
-    if workflow_yml.exists() and not workflow_yaml.exists():
-        sys.exit(
-            "FAIL: Workflow is named release.yml, but PyPI Trusted Publisher requires release.yaml"
-        )
+    if not workflow_yml.exists():
+        sys.exit("FAIL: .github/workflows/release.yml not found.")
 
-    if not workflow_yaml.exists():
-        sys.exit("FAIL: .github/workflows/release.yaml not found.")
-
-    content = workflow_yaml.read_text(encoding="utf-8")
+    content = workflow_yml.read_text(encoding="utf-8")
     if "pypa/gh-action-pypi-publish" not in content:
-        sys.exit("FAIL: release.yaml is missing pypa/gh-action-pypi-publish step")
+        sys.exit("FAIL: release.yml is missing pypa/gh-action-pypi-publish step")
     if "environment:" not in content or "name: pypi" not in content:
-        sys.exit(
-            "FAIL: release.yaml is missing environment: pypi for PyPI OIDC minting"
-        )
+        sys.exit("FAIL: release.yml is missing environment: pypi for PyPI OIDC minting")
 
     print(
-        "PASS: GitHub Actions release.yaml matches PyPI Trusted Publisher specification"
+        "PASS: GitHub Actions release.yml matches PyPI Trusted Publisher specification"
     )
 
 
