@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from enum import StrEnum
 
 
 @dataclass(frozen=True)
@@ -138,3 +139,56 @@ class VerifiedSummary:
     summary_text: str
     episodes_analyzed: int
     messages_analyzed: int
+
+
+class ToneFormality(StrEnum):
+    FORMAL = "formal"
+    CASUAL = "casual"
+    NEUTRAL = "neutral"
+
+
+class DraftStatus(StrEnum):
+    STAGED_FOR_REVIEW = "STAGED_FOR_REVIEW"
+    APPROVED_BY_USER = "APPROVED_BY_USER"
+    REJECTED_BY_USER = "REJECTED_BY_USER"
+
+
+@dataclass(frozen=True)
+class UnansweredQuestion:
+    message_pk: int
+    sender_name: str
+    iso_date: str
+    text: str
+    question_text: str
+
+
+@dataclass(frozen=True)
+class ToneProfile:
+    formality: ToneFormality
+    typical_greeting: str | None
+    typical_signoff: str | None
+    use_contractions: bool
+    sample_count: int
+    exemplars: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class IntentVerificationResult:
+    is_valid: bool
+    violations: tuple[str, ...]
+    verified_clauses: tuple[str, ...]
+    grounding_score: float = 1.0
+
+
+@dataclass(frozen=True)
+class StagedDraft:
+    draft_id: str
+    chat_jid: str
+    created_at: float
+    iso_date: str
+    thread_root_pk: int | None
+    unanswered_questions: tuple[UnansweredQuestion, ...]
+    intent_bullets: tuple[str, ...]
+    tone_profile: ToneProfile
+    draft_text: str
+    status: DraftStatus = DraftStatus.STAGED_FOR_REVIEW

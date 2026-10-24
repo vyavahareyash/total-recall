@@ -7,6 +7,11 @@ from pathlib import Path
 from total_recall.chunking import chunk_into_episodes
 from total_recall.dag import ReplyDAG
 from total_recall.discovery import discover_whatsapp_containers
+from total_recall.drafter import (
+    DraftReviewBox,
+    ReplyDrafter,
+    detect_unanswered_questions,
+)
 from total_recall.embeddings import get_embedding_provider
 from total_recall.ingestion import IngestionEngine
 from total_recall.search import SearchIndex
@@ -15,6 +20,7 @@ from total_recall.summarizer import (
     OllamaLLMAdapter,
     Summarizer,
 )
+from total_recall.types import NormalizedMessage
 from total_recall.vault import VaultConfig
 
 DEFAULT_DB_PATH = Path("total_recall.db")
@@ -401,6 +407,85 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         default=False,
         help="Bypass prefix NLI verification and display raw completion",
+    )
+
+    # 8. Draft subcommand
+    draft_parser = subparsers.add_parser(
+        "draft",
+        help="Synthesize intent-constrained reply draft with surface tone matching",
+    )
+    draft_parser.add_argument(
+        "--chat",
+        type=str,
+        default=None,
+        help="Target chat JID to reply to",
+    )
+    draft_parser.add_argument(
+        "--thread",
+        type=int,
+        default=None,
+        help="Message PK to trace and reply within full DAG thread",
+    )
+    draft_parser.add_argument(
+        "--intent",
+        "-i",
+        action="append",
+        default=[],
+        help="Intent bullet point(s) strictly bounding the reply draft",
+    )
+    draft_parser.add_argument(
+        "--db",
+        type=Path,
+        default=DEFAULT_DB_PATH,
+        help="Path to SQLite index database (default: total_recall.db)",
+    )
+    draft_parser.add_argument(
+        "--source",
+        type=Path,
+        default=None,
+        help="Path to ChatStorage.sqlite",
+    )
+    draft_parser.add_argument(
+        "--contacts",
+        type=Path,
+        default=None,
+        help="Path to ContactsV2.sqlite",
+    )
+    draft_parser.add_argument(
+        "--llm",
+        choices=["auto", "ollama", "mock"],
+        default="auto",
+        help="Local LLM adapter (default: auto)",
+    )
+    draft_parser.add_argument(
+        "--model",
+        type=str,
+        default="qwen2.5:7b",
+        help="Model identifier (default: qwen2.5:7b)",
+    )
+    draft_parser.add_argument(
+        "--temperature",
+        type=float,
+        default=0.0,
+        help="Drafting temperature T in [0.0, 0.2] (default: 0.0)",
+    )
+    draft_parser.add_argument(
+        "--list-staged",
+        action="store_true",
+        default=False,
+        help="List pending drafts in the staging review box",
+    )
+    draft_parser.add_argument(
+        "--approve",
+        type=str,
+        default=None,
+        help="Approve a staged draft by ID for manual copy",
+    )
+    draft_parser.add_argument(
+        "--reject",
+        type=str,
+        default=None,
+        help="Reject a staged draft by ID",
     )
 
     return parser
@@ -1000,6 +1085,209 @@ def run_summarize(args: argparse.Namespace) -> int:
     return 0
 
 
+def run_draft(args: argparse.Namespace) -> int:
+    review_box = DraftReviewBox(args.db)
+
+    # 1. Review box operations
+    if args.list_staged:
+        staged_list = review_box.list_staged(args.chat)
+        if not staged_list:
+            print("No drafts currently staged for review.")
+            return 0
+        print("=" * 80)
+        print("STAGED DRAFTS REVIEW BOX")
+        print("=" * 80)
+        for s in staged_list:
+            print(
+                f"Draft ID : {s.draft_id} | Status: {s.status.value} | Created: {s.iso_date}"
+            )
+            print(f"Chat     : {s.chat_jid}")
+            print(f"Intent   : {', '.join(s.intent_bullets)}")
+            print("Proposed Draft:")
+            print(s.draft_text)
+            print("-" * 80)
+        return 0
+
+    if args.approve:
+        try:
+            draft = review_box.approve(args.approve)
+            print(f"Draft '{draft.draft_id}' marked as {draft.status.value}.")
+            print("Ready for manual copy-paste into WhatsApp:")
+            print("-" * 40)
+            print(draft.draft_text)
+            print("-" * 40)
+            return 0
+        except KeyError as e:
+            print(f"Error: {e}", file=sys.stderr)
+            return 1
+
+    if args.reject:
+        try:
+            draft = review_box.reject(args.reject)
+            print(f"Draft '{draft.draft_id}' marked as {draft.status.value}.")
+            return 0
+        except KeyError as e:
+            print(f"Error: {e}", file=sys.stderr)
+            return 1
+
+    # 2. Validation of chat/thread requirements
+    if not args.chat and args.thread is None:
+        print(
+            "Error: Specify either --chat <chat_jid> or --thread <message_pk> to draft a reply.",
+            file=sys.stderr,
+        )
+        return 1
+
+    if not (0.0 <= args.temperature <= 0.2):
+        print(
+            f"Error: Drafting temperature must be in range [0.0, 0.2], got {args.temperature}",
+            file=sys.stderr,
+        )
+        return 1
+
+    # 3. Retrieve messages
+    all_messages: list[NormalizedMessage] = []
+    if args.db and args.db.exists():
+        with SearchIndex(args.db) as index:
+            all_messages = index.get_all_messages()
+    elif args.source and args.source.exists():
+        engine = IngestionEngine(args.source, args.contacts)
+        all_messages, _ = engine.extract_messages(
+            include_direct=True, include_groups=True
+        )
+    else:
+        source, contacts = _resolve_source_and_contacts(args.source, args.contacts)
+        if source:
+            engine = IngestionEngine(source, contacts)
+            all_messages, _ = engine.extract_messages(
+                include_direct=True, include_groups=True
+            )
+
+    if not all_messages:
+        print(
+            "Error: No messages available in index or storage to draft reply.",
+            file=sys.stderr,
+        )
+        return 1
+
+    # Filter thread messages
+    chat_jid = args.chat
+    thread_messages: list[NormalizedMessage] = []
+    if args.thread is not None:
+        dag = ReplyDAG(all_messages)
+        if args.thread not in dag.messages:
+            print(
+                f"Error: Message #{args.thread} not found to trace thread.",
+                file=sys.stderr,
+            )
+            return 1
+        thread_messages = dag.get_thread_messages(args.thread)
+        if not chat_jid and thread_messages:
+            chat_jid = thread_messages[0].chat_jid
+    else:
+        thread_messages = [m for m in all_messages if m.chat_jid == chat_jid]
+
+    if not thread_messages:
+        print(f"Error: No messages found for chat '{chat_jid}'.", file=sys.stderr)
+        return 1
+
+    # 4. Outgoing messages from user (is_from_me = 1) in that chat
+    outgoing_history = [
+        m for m in all_messages if m.chat_jid == chat_jid and m.is_from_me
+    ]
+    outgoing_history = outgoing_history[-10:]
+
+    # 5. Detect unanswered questions
+    unanswered = detect_unanswered_questions(thread_messages)
+
+    # 6. Gather intent bullets
+    intent_bullets = list(args.intent) if args.intent else []
+    if not intent_bullets:
+        if sys.stdin.isatty():
+            print("\nIdentified unanswered question(s) in active thread:")
+            if unanswered:
+                for idx, uq in enumerate(unanswered, 1):
+                    print(
+                        f'  [{idx}] {uq.sender_name} (msg #{uq.message_pk}): "{uq.question_text}"'
+                    )
+            else:
+                print("  (No direct questions found; drafting general response)")
+            print(
+                "\nEnter response intent points (one per line, empty line to finish):"
+            )
+            while True:
+                try:
+                    line = input("> ").strip()
+                    if not line:
+                        break
+                    intent_bullets.append(line)
+                except (EOFError, KeyboardInterrupt):
+                    break
+        if not intent_bullets:
+            print(
+                "Error: At least one intent bullet point is required to draft a reply (--intent / -i).",
+                file=sys.stderr,
+            )
+            return 1
+
+    # 7. Synthesize draft
+    llm = _get_llm_adapter(args.llm, args.model)
+    drafter = ReplyDrafter(llm=llm, review_box=review_box)
+
+    staged, verification = drafter.draft_reply(
+        chat_jid=chat_jid,
+        thread_messages=thread_messages,
+        outgoing_history=outgoing_history,
+        intent_bullets=intent_bullets,
+        thread_root_pk=args.thread,
+        temperature=args.temperature,
+    )
+
+    # 8. Render Staged Review Box
+    print("=" * 80)
+    print(
+        "STAGED DRAFT REVIEW BOX (Manual Human Review Required - Autonomous Sending Prohibited)"
+    )
+    print(
+        f"Draft ID: {staged.draft_id} | Chat: {staged.chat_jid} | Status: {staged.status.value}"
+    )
+    print("=" * 80)
+    print(
+        f"Tone Formality : {staged.tone_profile.formality.value.capitalize()} (Learned from {staged.tone_profile.sample_count} recent outgoing messages)"
+    )
+    print(f"Greeting Style : {staged.tone_profile.typical_greeting or 'None'}")
+    print(f"Sign-off Style : {staged.tone_profile.typical_signoff or 'None'}")
+    print("\nUser Intent Bullets Addressed:")
+    for b in staged.intent_bullets:
+        print(f"  • {b}")
+
+    if staged.unanswered_questions:
+        print("\nQuestions Addressed:")
+        for u in staged.unanswered_questions:
+            print(f'  • {u.sender_name}: "{u.question_text}"')
+
+    print("\n" + "-" * 80)
+    print("PROPOSED DRAFT:")
+    print(staged.draft_text)
+    print("-" * 80 + "\n")
+
+    print("INTENT VERIFICATION AUDIT REPORT")
+    print(
+        f"- Grounding Status       : {'VERIFIED & GROUNDED' if verification.is_valid else 'VIOLATIONS DETECTED'}"
+    )
+    print(f"- Grounding Score        : {verification.grounding_score:.2f}")
+    print(f"- Unrequested Commitments: {len(verification.violations)}")
+    if verification.violations:
+        for v in verification.violations:
+            print(f"  * {v}")
+    print(
+        "- Autonomous Sending     : STRUCTURALLY PROHIBITED (Manual Clipboard Action Only)"
+    )
+    print("=" * 80)
+
+    return 0 if verification.is_valid else 1
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
@@ -1018,6 +1306,8 @@ def main(argv: list[str] | None = None) -> int:
         return run_purge(args)
     if args.command == "summarize":
         return run_summarize(args)
+    if args.command == "draft":
+        return run_draft(args)
     return 0
 
 
