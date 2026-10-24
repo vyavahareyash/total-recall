@@ -3,8 +3,8 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "total-recall"
-version = "0.1.0"
+name = "whatsapp-total-recall"
+version = "0.1.1"
 description = "A Zero-Cost, Privacy-First Conversational Intelligence Engine for WhatsApp (macOS)"
 readme = "README.md"
 requires-python = ">=3.13"
@@ -14,14 +14,20 @@ dependencies = []
 vec = ["sqlite-vec>=0.1.6"]
 
 [project.scripts]
-total-recall = "total_recall.cli:main"
+whatsapp-total-recall = "whatsapp_total_recall.cli:main"
+total-recall = "whatsapp_total_recall.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/vyavahareyash/whatsapp-total-recall"
+Repository = "https://github.com/vyavahareyash/whatsapp-total-recall"
+Issues = "https://github.com/vyavahareyash/whatsapp-total-recall/issues"
 
 [tool.hatch.build.targets.wheel]
-packages = ["total_recall"]
+packages = ["whatsapp_total_recall"]
 
 [tool.hatch.build.targets.sdist]
 include = [
-    "/total_recall",
+    "/whatsapp_total_recall",
     "/apps",
     "/README.md",
     "/LICENSE",
@@ -56,7 +62,7 @@ ignore = [
 ]
 
 [tool.ruff.lint.isort]
-known-first-party = ["total_recall"]
+known-first-party = ["whatsapp_total_recall"]
 
 [tool.ruff.format]
 quote-style = "double"

@@ -1,8 +1,8 @@
-# Total Recall
+# WhatsApp Total Recall
 
 > **A Zero-Cost, Privacy-First Conversational Intelligence Engine for WhatsApp (macOS)**
 
-Total Recall is an edge-native conversational intelligence platform designed to synthesize, search, and retrieve information across personal WhatsApp chats, group discussions, and multi-tiered communities on macOS—with **zero cloud costs, zero network packet egress, and zero account ban risk**.
+WhatsApp Total Recall is an edge-native conversational intelligence platform designed to synthesize, search, and retrieve information across personal WhatsApp chats, group discussions, and multi-tiered communities on macOS—with **zero cloud costs, zero network packet egress, and zero account ban risk**.
 
 ---
 
@@ -58,7 +58,7 @@ WhatsApp Catalyst database files are located in `~/Library/Group Containers/grou
 
 1. Open **System Settings** > **Privacy & Security** > **Full Disk Access**.
 2. Unlock with your password or Touch ID.
-3. Toggle ON (or click **+** to add) your terminal emulator (**Terminal**, **iTerm2**, or **Ghostty**), **TotalRecallBar.app**, and your IDE (e.g. **Cursor**, **VS Code**).
+3. Toggle ON (or click **+** to add) your terminal emulator (**Terminal**, **iTerm2**, or **Ghostty**), **WhatsAppTotalRecallBar.app**, and your IDE (e.g. **Cursor**, **VS Code**).
 
 ---
 
@@ -66,41 +66,42 @@ WhatsApp Catalyst database files are located in `~/Library/Group Containers/grou
 
 ### Option 1: Standalone macOS Menu Bar App (Recommended for GUI Users)
 
-1. Download the latest `TotalRecallBar-macos.dmg` from [GitHub Releases](https://github.com/vyavahareyash/total-recall/releases).
-2. Open `TotalRecallBar-macos.dmg` and drag `TotalRecallBar.app` into `/Applications`.
-3. Launch `TotalRecallBar.app`. An icon appears in your menu bar.
+1. Download the latest `WhatsAppTotalRecall-macos.dmg` from [GitHub Releases](https://github.com/vyavahareyash/whatsapp-total-recall/releases).
+2. Open `WhatsAppTotalRecall-macos.dmg` and drag `WhatsAppTotalRecallBar.app` into `/Applications`.
+3. Launch `WhatsAppTotalRecallBar.app`. An icon appears in your menu bar.
 
 ### Option 2: Python CLI Installation via `uv` or `pipx`
 
-Install the `total-recall` CLI globally:
+Install the `whatsapp-total-recall` CLI globally from PyPI:
 
 ```bash
 # Using uv (recommended)
-uv tool install "total-recall[vec]"
+uv tool install "whatsapp-total-recall[vec]"
 
 # Or using pipx
-pipx install "total-recall[vec]"
+pipx install "whatsapp-total-recall[vec]"
 
 # Or inside an existing virtual environment
-pip install "total-recall[vec]"
+pip install "whatsapp-total-recall[vec]"
 ```
 
 > [!NOTE]
 > The `[vec]` extra installs `sqlite-vec>=0.1.6` for local SIMD-accelerated KNN vector search. Omit `[vec]` for a pure standard-library zero-dependency installation (BM25 lexical search only).
+> Both `whatsapp-total-recall` and `total-recall` executable commands are available.
 
 ### Option 3: Direct MCP Server Install (for Claude Desktop & Cursor)
 
-`TotalRecallBar.app` is **not** required to use the MCP server. MCP runs completely headless:
+`WhatsAppTotalRecallBar.app` is **not** required to use the MCP server. MCP runs completely headless:
 
 > [!TIP]
-> You only need `uvx` (or the Python CLI) and a one-time message ingestion (`total-recall vault approve <jid>` followed by `total-recall ingest`). If invoking directly from Claude Desktop / Cursor, grant Full Disk Access to that application.
+> You only need `uvx` (or the Python CLI) and a one-time message ingestion (`whatsapp-total-recall vault approve --all` followed by `whatsapp-total-recall ingest`). If invoking directly from Claude Desktop / Cursor, grant Full Disk Access to that application.
 >
 > **Where does it pull from?**
-> * **PyPI (Standard):** `uvx --from "total-recall[vec]"` downloads from PyPI.
-> * **Direct from GitHub (Pre-release / bleeding-edge):** Replace `"total-recall[vec]"` with `"git+https://github.com/vyavahareyash/total-recall.git"`.
-> * **Local Machine:** Use `"command": "total-recall"` if already installed locally via `uv tool install` or `pipx`.
+> * **PyPI (Standard):** `uvx --from "whatsapp-total-recall[vec]"` downloads from PyPI.
+> * **Direct from GitHub (Pre-release / bleeding-edge):** Replace `"whatsapp-total-recall[vec]"` with `"git+https://github.com/vyavahareyash/whatsapp-total-recall.git"`.
+> * **Local Machine:** Use `"command": "whatsapp-total-recall"` if already installed locally via `uv tool install` or `pipx`.
 
-Configure Total Recall directly in your AI client without manual virtualenv management using `uvx`:
+Configure WhatsApp Total Recall directly in your AI client without manual virtualenv management using `uvx`:
 
 #### Claude Desktop
 
@@ -109,15 +110,15 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
 ```json
 {
   "mcpServers": {
-    "total-recall": {
+    "whatsapp-total-recall": {
       "command": "uvx",
-      "args": ["--from", "total-recall[vec]", "total-recall", "mcp"]
+      "args": ["--from", "whatsapp-total-recall[vec]", "whatsapp-total-recall", "mcp"]
     }
   }
 }
 ```
 
-*(Or use `"command": "total-recall"` if already installed globally via `uv tool install`)*
+*(Or use `"command": "whatsapp-total-recall"` if already installed globally via `uv tool install`)*
 
 #### Cursor & Windsurf
 
@@ -126,9 +127,9 @@ In Cursor settings (`Settings > Features > MCP`) or `.cursor/mcp.json`:
 ```json
 {
   "mcpServers": {
-    "total-recall": {
+    "whatsapp-total-recall": {
       "command": "uvx",
-      "args": ["--from", "total-recall[vec]", "total-recall", "mcp"]
+      "args": ["--from", "whatsapp-total-recall[vec]", "whatsapp-total-recall", "mcp"]
     }
   }
 }
@@ -137,20 +138,20 @@ In Cursor settings (`Settings > Features > MCP`) or `.cursor/mcp.json`:
 #### Claude Code (CLI)
 
 ```bash
-claude mcp add total-recall -- uvx --from "total-recall[vec]" total-recall mcp
+claude mcp add whatsapp-total-recall -- uvx --from "whatsapp-total-recall[vec]" whatsapp-total-recall mcp
 ```
 
 ### Option 4: From Source
 
 ```bash
-git clone https://github.com/vyavahareyash/total-recall.git
-cd total-recall
+git clone https://github.com/vyavahareyash/whatsapp-total-recall.git
+cd whatsapp-total-recall
 
 # Install dependencies using uv
 uv sync --extra vec
 
 # Or build the native menu bar DMG installer
-make -C apps/TotalRecallBar dmg
+make -C apps/WhatsAppTotalRecallBar dmg
 ```
 
 ---
@@ -159,17 +160,17 @@ make -C apps/TotalRecallBar dmg
 
 ### 1. Configure the Opt-In Chat Vault
 
-Total Recall enforces a strict privacy perimeter. You can approve all chats at once or pick specific contacts:
+WhatsApp Total Recall enforces a strict privacy perimeter. You can approve all chats at once or pick specific contacts:
 
 ```bash
 # Quick approve all discovered chats (Recommended for instant MCP use)
-total-recall vault approve --all
+whatsapp-total-recall vault approve --all
 
 # Or approve a specific contact or group JID
-total-recall vault approve "123456789@s.whatsapp.net"
+whatsapp-total-recall vault approve "123456789@s.whatsapp.net"
 
 # Verify active approved chats
-total-recall vault list-approved
+whatsapp-total-recall vault list-approved
 ```
 
 ### 2. Ingest Messages
@@ -178,13 +179,13 @@ Ingest messages from the local WhatsApp Catalyst storage into the local encrypte
 
 ```bash
 # Ingest approved 1:1 chats
-total-recall ingest
+whatsapp-total-recall ingest
 
 # Include approved group chats with reply DAG attribution
-total-recall ingest --include-groups
+whatsapp-total-recall ingest --include-groups
 
 # Or bypass vault checks entirely and ingest all chats directly:
-total-recall ingest --all --include-groups
+whatsapp-total-recall ingest --all --include-groups
 ```
 
 ### 3. Search Conversations
@@ -192,7 +193,7 @@ total-recall ingest --all --include-groups
 Perform hybrid BM25 + vector search fused with Reciprocal Rank Fusion (RRF):
 
 ```bash
-total-recall search "contract renewal deadline" --k 5
+whatsapp-total-recall search "contract renewal deadline" --k 5
 ```
 
 ### 4. Launch Desktop Menu Bar & Local UI
@@ -200,12 +201,12 @@ total-recall search "contract renewal deadline" --k 5
 Start the local UI server and native menu bar companion (`http://127.0.0.1:8765`):
 
 ```bash
-total-recall ui
+whatsapp-total-recall ui
 ```
 
 ### 5. Connect as an MCP Server
 
-Total Recall provides a Model Context Protocol (MCP) server for Claude Desktop, Cursor, and local agent orchestrators.
+WhatsApp Total Recall provides a Model Context Protocol (MCP) server for Claude Desktop, Cursor, and local agent orchestrators.
 
 #### Claude Desktop Integration
 
@@ -214,8 +215,8 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
 ```json
 {
   "mcpServers": {
-    "total-recall": {
-      "command": "total-recall",
+    "whatsapp-total-recall": {
+      "command": "whatsapp-total-recall",
       "args": ["mcp"]
     }
   }
@@ -233,7 +234,7 @@ Once connected, your AI assistant gains access to three privacy-scoped tools:
 
 ```bash
 # Starts SSE daemon with bearer bridge-token authentication
-total-recall mcp --transport sse --port 8766
+whatsapp-total-recall mcp --transport sse --port 8766
 ```
 
 ---
@@ -245,7 +246,7 @@ Total Recall includes an automated GitHub Actions release workflow (`.github/wor
 * **Trigger:** Push a semantic tag (e.g. `git tag v0.1.0 && git push origin v0.1.0`) or run manually via `workflow_dispatch`.
 * **Quality Gate:** Automated linting (`ruff`), format validation, and matrix test execution on Ubuntu & macOS.
 * **Build Outputs:**
-  * Universal macOS DMG installer (`TotalRecallBar-macos.dmg`) supporting both Apple Silicon (`arm64`) and Intel (`x86_64`).
+  * Universal macOS DMG installer (`WhatsAppTotalRecall-macos.dmg`) supporting both Apple Silicon (`arm64`) and Intel (`x86_64`).
   * Python Wheel (`.whl`) and Source Distribution (`.tar.gz`).
   * Cryptographic checksum ledger (`SHA256SUMS.txt`).
 * **Publishing:** Creates GitHub Releases with changelogs and optionally publishes packages to PyPI via trusted publishing.

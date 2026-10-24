@@ -7,18 +7,18 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from total_recall.chunking import chunk_into_episodes
-from total_recall.types import (
+from whatsapp_total_recall.chunking import chunk_into_episodes
+from whatsapp_total_recall.types import (
     ConversationalFlowEpisode,
     IngestionStats,
     NormalizedMessage,
     PurgeReport,
 )
-from total_recall.vault import DiscoveredChat, IngestionReport, VaultConfig
+from whatsapp_total_recall.vault import DiscoveredChat, IngestionReport, VaultConfig
 
 if TYPE_CHECKING:
-    from total_recall.embeddings import EmbeddingProvider
-    from total_recall.search import SearchIndex
+    from whatsapp_total_recall.embeddings import EmbeddingProvider
+    from whatsapp_total_recall.search import SearchIndex
 
 # Apple Epoch offset: seconds between 1970-01-01 and 2001-01-01 UTC
 APPLE_EPOCH_OFFSET = 978_307_200

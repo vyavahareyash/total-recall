@@ -7,14 +7,14 @@ from pathlib import Path
 
 import pytest
 
-from total_recall.cli import main as cli_main
-from total_recall.ingestion import (
+from whatsapp_total_recall.cli import main as cli_main
+from whatsapp_total_recall.ingestion import (
     APPLE_EPOCH_OFFSET,
     IngestionEngine,
     apple_epoch_to_unix,
     format_iso_timestamp,
 )
-from total_recall.search import SearchIndex
+from whatsapp_total_recall.search import SearchIndex
 
 
 @pytest.fixture

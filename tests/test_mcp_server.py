@@ -9,10 +9,13 @@ from pathlib import Path
 
 import pytest
 
-from total_recall.cli import main as cli_main
-from total_recall.drafter import AutonomousSendingProhibitedError, DraftReviewBox
-from total_recall.ingestion import APPLE_EPOCH_OFFSET, format_iso_timestamp
-from total_recall.mcp import (
+from whatsapp_total_recall.cli import main as cli_main
+from whatsapp_total_recall.drafter import (
+    AutonomousSendingProhibitedError,
+    DraftReviewBox,
+)
+from whatsapp_total_recall.ingestion import APPLE_EPOCH_OFFSET, format_iso_timestamp
+from whatsapp_total_recall.mcp import (
     MCPHTTPRequestHandler,
     MCPServer,
     MCPSSEServer,
@@ -20,9 +23,9 @@ from total_recall.mcp import (
     load_or_create_bridge_token,
     validate_loopback_host,
 )
-from total_recall.search import SearchIndex
-from total_recall.summarizer import DeterministicMockLLMAdapter
-from total_recall.types import NormalizedMessage
+from whatsapp_total_recall.search import SearchIndex
+from whatsapp_total_recall.summarizer import DeterministicMockLLMAdapter
+from whatsapp_total_recall.types import NormalizedMessage
 
 
 def make_test_msg(
@@ -229,7 +232,7 @@ def test_stdio_handshake_and_ping(tmp_path: Path):
     # Initialize check
     assert outputs[0]["id"] == 1
     assert outputs[0]["result"]["protocolVersion"] == "2024-11-05"
-    assert outputs[0]["result"]["serverInfo"]["name"] == "total-recall-mcp"
+    assert outputs[0]["result"]["serverInfo"]["name"] == "whatsapp-total-recall-mcp"
 
     # Ping check
     assert outputs[1]["id"] == 2
@@ -551,7 +554,7 @@ def test_cli_mcp_stdio_ping(tmp_path: Path, monkeypatch, capsys):
 
 def test_mcp_server_vault_filter_enforcement(tmp_path: Path):
     """Verify MCP tools enforce Opt-In Chat Vault filtering at query time."""
-    from total_recall.vault import VaultConfig
+    from whatsapp_total_recall.vault import VaultConfig
 
     db_path = tmp_path / "test.db"
     seed_test_database(db_path)

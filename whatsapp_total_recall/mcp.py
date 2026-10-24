@@ -13,15 +13,15 @@ import urllib.parse
 from pathlib import Path
 from typing import Any
 
-from total_recall.dag import ReplyDAG
-from total_recall.drafter import (
+from whatsapp_total_recall.dag import ReplyDAG
+from whatsapp_total_recall.drafter import (
     AutonomousSendingProhibitedError,
     DraftReviewBox,
     ReplyDrafter,
 )
-from total_recall.search import SearchIndex
-from total_recall.summarizer import DeterministicMockLLMAdapter, LLMAdapter
-from total_recall.vault import VaultConfig
+from whatsapp_total_recall.search import SearchIndex
+from whatsapp_total_recall.summarizer import DeterministicMockLLMAdapter, LLMAdapter
+from whatsapp_total_recall.vault import VaultConfig
 
 DEFAULT_BRIDGE_TOKEN_PATH = Path(".bridge-token")
 MCP_PROTOCOL_VERSION = "2024-11-05"
@@ -58,7 +58,11 @@ def load_or_create_bridge_token(path: Path | str | None = None) -> str:
     except OSError:
         # Fallback if spawned in read-only cwd (e.g. root '/' by desktop GUI clients)
         try:
-            home_token = Path.home() / ".total-recall" / ".bridge-token"
+            home_token = Path.home() / ".whatsapp-total-recall" / ".bridge-token"
+            if not home_token.exists():
+                fallback_old = Path.home() / ".total-recall" / ".bridge-token"
+                if fallback_old.exists():
+                    home_token = fallback_old
             if home_token.resolve() != token_path.resolve():
                 return load_or_create_bridge_token(home_token)
         except OSError:
@@ -71,7 +75,7 @@ class MCPServer:
 
     def __init__(
         self,
-        db_path: Path | str = "total_recall.db",
+        db_path: Path | str = "whatsapp_total_recall.db",
         token: str | None = None,
         token_path: Path | str | None = None,
         review_box_path: Path | str | None = None,
@@ -460,8 +464,8 @@ class MCPServer:
                     "supportedVersions": ["2024-11-05", "2026-07-28"],
                     "capabilities": {"tools": {}},
                     "serverInfo": {
-                        "name": "total-recall-mcp",
-                        "version": "0.1.0",
+                        "name": "whatsapp-total-recall-mcp",
+                        "version": "0.1.1",
                     },
                 },
             }
@@ -585,7 +589,7 @@ class MCPHTTPRequestHandler(http.server.BaseHTTPRequestHandler):
         self.close_connection = True
         self.send_response(401)
         self.send_header("Content-Type", "application/json")
-        self.send_header("WWW-Authenticate", 'Bearer realm="total-recall-mcp"')
+        self.send_header("WWW-Authenticate", 'Bearer realm="whatsapp-total-recall-mcp"')
         self.send_header("Connection", "close")
         self.end_headers()
         err_payload = {

@@ -12,23 +12,24 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 
-from total_recall.config import AppConfig
-from total_recall.dag import ReplyDAG
-from total_recall.discovery import discover_whatsapp_containers
-from total_recall.drafter import DraftReviewBox, ReplyDrafter
-from total_recall.ingestion import IngestionEngine
-from total_recall.mcp import validate_loopback_host
-from total_recall.search import SearchIndex
-from total_recall.summarizer import (
+from whatsapp_total_recall.config import AppConfig
+from whatsapp_total_recall.dag import ReplyDAG
+from whatsapp_total_recall.discovery import discover_whatsapp_containers
+from whatsapp_total_recall.drafter import DraftReviewBox, ReplyDrafter
+from whatsapp_total_recall.ingestion import IngestionEngine
+from whatsapp_total_recall.mcp import validate_loopback_host
+from whatsapp_total_recall.search import SearchIndex
+from whatsapp_total_recall.summarizer import (
     OllamaLLMAdapter,
     format_citation,
 )
-from total_recall.vault import DiscoveredChat, VaultConfig
+from whatsapp_total_recall.vault import DiscoveredChat, VaultConfig
 
-logger = logging.getLogger("total_recall.ui")
+logger = logging.getLogger("whatsapp_total_recall.ui")
 
 STATIC_DIR = Path(__file__).parent / "static"
-APPS_DIR = Path(__file__).parent.parent / "apps" / "TotalRecallBar"
+APPS_DIR = Path(__file__).parent.parent / "apps" / "WhatsAppTotalRecallBar"
+FALLBACK_APPS_DIR = Path(__file__).parent.parent / "apps" / "TotalRecallBar"
 
 
 class UIRequestHandler(BaseHTTPRequestHandler):
@@ -747,12 +748,12 @@ def build_native_menu_bar_app(
     if not swiftc:
         return None
 
-    src_dir = source_dir or APPS_DIR
+    src_dir = source_dir or (APPS_DIR if APPS_DIR.exists() else FALLBACK_APPS_DIR)
     swift_source = src_dir / "main.swift"
     if not swift_source.exists():
         return None
 
-    target = output_path or (src_dir / "TotalRecallBar")
+    target = output_path or (src_dir / "WhatsAppTotalRecallBar")
     target.parent.mkdir(parents=True, exist_ok=True)
 
     cache_dir = Path("/tmp/swift-cache")
@@ -789,9 +790,9 @@ def build_native_menu_bar_app(
 
 
 def run_ui_server(
-    db_path: Path = Path("total_recall.db"),
+    db_path: Path = Path("whatsapp_total_recall.db"),
     vault_path: Path = Path("vault_config.json"),
-    review_box_path: Path = Path("total_recall.db"),
+    review_box_path: Path = Path("whatsapp_total_recall.db"),
     config: AppConfig | None = None,
     host: str = "127.0.0.1",
     port: int = 8765,
@@ -815,26 +816,37 @@ def run_ui_server(
     url = f"http://{host}:{actual_port}"
 
     if launch_desktop_app and sys.platform == "darwin":
-        binary = APPS_DIR / "TotalRecallBar"
+        binary = (
+            APPS_DIR / "WhatsAppTotalRecallBar"
+            if (APPS_DIR / "WhatsAppTotalRecallBar").exists()
+            else (APPS_DIR / "TotalRecallBar")
+        )
         if not binary.exists():
             binary = build_native_menu_bar_app()
         if not binary or not binary.exists():
-            which_tr = shutil.which("TotalRecallBar")
             candidates = [
-                Path(which_tr) if which_tr else None,
+                shutil.which("WhatsAppTotalRecallBar"),
+                shutil.which("TotalRecallBar"),
+                Path(
+                    "/Applications/WhatsAppTotalRecallBar.app/Contents/MacOS/WhatsAppTotalRecallBar"
+                ),
                 Path("/Applications/TotalRecallBar.app/Contents/MacOS/TotalRecallBar"),
+                Path.home()
+                / "Applications/WhatsAppTotalRecallBar.app/Contents/MacOS/WhatsAppTotalRecallBar",
                 Path.home()
                 / "Applications/TotalRecallBar.app/Contents/MacOS/TotalRecallBar",
             ]
             for cand in candidates:
-                if cand and cand.exists() and os.access(cand, os.X_OK):
-                    binary = cand
-                    break
+                if cand:
+                    p = Path(cand)
+                    if p.exists() and os.access(p, os.X_OK):
+                        binary = p
+                        break
         if binary and binary.exists() and os.access(binary, os.X_OK):
             try:
                 subprocess.Popen([str(binary), url])
             except Exception as e:
-                logger.warning(f"Could not spawn TotalRecallBar: {e}")
+                logger.warning(f"Could not spawn menu bar app: {e}")
                 if open_browser:
                     import webbrowser
 

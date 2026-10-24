@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 
-from total_recall.types import NormalizedMessage
+from whatsapp_total_recall.types import NormalizedMessage
 
 
 class ReplyDAG:

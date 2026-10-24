@@ -1,10 +1,10 @@
 SWIFTC ?= swiftc
-TARGET ?= TotalRecallBar
+TARGET ?= WhatsAppTotalRecallBar
 SRC ?= main.swift
 CACHE ?= /tmp/swift-cache
-APP_NAME ?= TotalRecallBar.app
-DMG_NAME ?= TotalRecallBar-macos.dmg
-DMG_STAGING ?= /tmp/tr-dmg-staging
+APP_NAME ?= WhatsAppTotalRecallBar.app
+DMG_NAME ?= WhatsAppTotalRecall-macos.dmg
+DMG_STAGING ?= /tmp/wtr-dmg-staging
 
 .PHONY: all build universal app dmg clean run
 
@@ -37,7 +37,7 @@ dmg: universal app
 	mkdir -p $(DMG_STAGING)
 	cp -R $(APP_NAME) $(DMG_STAGING)/
 	ln -s /Applications $(DMG_STAGING)/Applications
-	hdiutil create -srcfolder $(DMG_STAGING) -volname "Total Recall" -ov -format UDZO $(DMG_NAME)
+	hdiutil create -srcfolder $(DMG_STAGING) -volname "WhatsApp Total Recall" -ov -format UDZO $(DMG_NAME)
 	rm -rf $(DMG_STAGING)
 	@echo "Created $(DMG_NAME)"
 	@shasum -a 256 $(DMG_NAME)

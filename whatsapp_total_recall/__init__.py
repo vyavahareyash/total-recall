@@ -2,16 +2,19 @@
 
 from __future__ import annotations
 
-from total_recall.chunking import (
+from whatsapp_total_recall.chunking import (
     DIRECT_BURST_GAP_SECONDS,
     GROUP_BURST_GAP_SECONDS,
     BurstChunker,
     chunk_into_episodes,
 )
-from total_recall.config import DEFAULT_CONFIG_PATH, AppConfig
-from total_recall.dag import ReplyDAG
-from total_recall.discovery import WhatsAppContainers, discover_whatsapp_containers
-from total_recall.drafter import (
+from whatsapp_total_recall.config import DEFAULT_CONFIG_PATH, AppConfig
+from whatsapp_total_recall.dag import ReplyDAG
+from whatsapp_total_recall.discovery import (
+    WhatsAppContainers,
+    discover_whatsapp_containers,
+)
+from whatsapp_total_recall.drafter import (
     AutonomousSendingProhibitedError,
     DraftReviewBox,
     IntentVerifier,
@@ -19,15 +22,15 @@ from total_recall.drafter import (
     ToneAnalyzer,
     detect_unanswered_questions,
 )
-from total_recall.embeddings import (
+from whatsapp_total_recall.embeddings import (
     DeterministicMockEmbeddingProvider,
     EmbeddingProvider,
     OllamaEmbeddingProvider,
     ONNXEmbeddingProvider,
     get_embedding_provider,
 )
-from total_recall.ingestion import IngestionEngine
-from total_recall.mcp import (
+from whatsapp_total_recall.ingestion import IngestionEngine
+from whatsapp_total_recall.mcp import (
     DEFAULT_BRIDGE_TOKEN_PATH,
     MCPServer,
     MCPSSEServer,
@@ -35,8 +38,8 @@ from total_recall.mcp import (
     load_or_create_bridge_token,
     validate_loopback_host,
 )
-from total_recall.search import SearchIndex
-from total_recall.summarizer import (
+from whatsapp_total_recall.search import SearchIndex
+from whatsapp_total_recall.summarizer import (
     DeterministicMockLLMAdapter,
     LLMAdapter,
     MiniTruePrefixesVerifier,
@@ -46,7 +49,7 @@ from total_recall.summarizer import (
     format_citation,
     parse_citation,
 )
-from total_recall.types import (
+from whatsapp_total_recall.types import (
     Citation,
     ConversationalFlowEpisode,
     CrossBurstQuoteContext,
@@ -65,13 +68,13 @@ from total_recall.types import (
     VerifiedClaim,
     VerifiedSummary,
 )
-from total_recall.ui import (
+from whatsapp_total_recall.ui import (
     UIServer,
     UIServerContext,
     build_native_menu_bar_app,
     run_ui_server,
 )
-from total_recall.vault import DiscoveredChat, IngestionReport, VaultConfig
+from whatsapp_total_recall.vault import DiscoveredChat, IngestionReport, VaultConfig
 
 __all__ = [
     "DEFAULT_CONFIG_PATH",

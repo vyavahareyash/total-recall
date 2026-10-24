@@ -7,13 +7,13 @@ from pathlib import Path
 
 import pytest
 
-from total_recall.cli import main as cli_main
-from total_recall.dag import ReplyDAG
-from total_recall.ingestion import (
+from whatsapp_total_recall.cli import main as cli_main
+from whatsapp_total_recall.dag import ReplyDAG
+from whatsapp_total_recall.ingestion import (
     APPLE_EPOCH_OFFSET,
     IngestionEngine,
 )
-from total_recall.search import SearchIndex
+from whatsapp_total_recall.search import SearchIndex
 
 
 @pytest.fixture
@@ -441,7 +441,7 @@ def test_cli_ingest_with_groups_and_thread_inspection(
 def test_search_index_parent_pk_persistence():
     """Verify SearchIndex stores and retrieves parent_pk for reply graph queries."""
     with SearchIndex(":memory:") as index:
-        from total_recall.types import NormalizedMessage
+        from whatsapp_total_recall.types import NormalizedMessage
 
         m1 = NormalizedMessage(
             pk=10,

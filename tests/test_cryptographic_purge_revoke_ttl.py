@@ -6,17 +6,17 @@ from pathlib import Path
 
 import pytest
 
-from total_recall.chunking import chunk_into_episodes
-from total_recall.cli import main
-from total_recall.embeddings import DeterministicMockEmbeddingProvider
-from total_recall.ingestion import (
+from whatsapp_total_recall.chunking import chunk_into_episodes
+from whatsapp_total_recall.cli import main
+from whatsapp_total_recall.embeddings import DeterministicMockEmbeddingProvider
+from whatsapp_total_recall.ingestion import (
     APPLE_EPOCH_OFFSET,
     IngestionEngine,
     parse_disappearing_timer_string,
 )
-from total_recall.search import SearchIndex
-from total_recall.types import NormalizedMessage
-from total_recall.vault import VaultConfig
+from whatsapp_total_recall.search import SearchIndex
+from whatsapp_total_recall.types import NormalizedMessage
+from whatsapp_total_recall.vault import VaultConfig
 
 
 @pytest.fixture
@@ -430,7 +430,7 @@ def test_ingestion_sync_with_revocations_and_expired(
 ):
     """Ingestion sync automatically runs purge on detected revocations and expired messages."""
     chat_db = tmp_path / "ChatStorage.sqlite"
-    index_db = tmp_path / "total_recall.db"
+    index_db = tmp_path / "whatsapp_total_recall.db"
     t0_unix = 1792659600.0
     t0_apple = t0_unix - APPLE_EPOCH_OFFSET
 

@@ -7,11 +7,11 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from total_recall.chunking import chunk_into_episodes
-from total_recall.cli import main as cli_main
-from total_recall.ingestion import APPLE_EPOCH_OFFSET, format_iso_timestamp
-from total_recall.search import SearchIndex
-from total_recall.summarizer import (
+from whatsapp_total_recall.chunking import chunk_into_episodes
+from whatsapp_total_recall.cli import main as cli_main
+from whatsapp_total_recall.ingestion import APPLE_EPOCH_OFFSET, format_iso_timestamp
+from whatsapp_total_recall.search import SearchIndex
+from whatsapp_total_recall.summarizer import (
     DeterministicMockLLMAdapter,
     MiniTruePrefixesVerifier,
     OllamaLLMAdapter,
@@ -20,7 +20,7 @@ from total_recall.summarizer import (
     format_citation,
     parse_citation,
 )
-from total_recall.types import NormalizedMessage
+from whatsapp_total_recall.types import NormalizedMessage
 
 
 def make_msg(
@@ -409,7 +409,7 @@ def test_summarizer_empty_input():
 
 
 def test_cli_summarize_chat(tmp_path: Path):
-    db_path = tmp_path / "total_recall.db"
+    db_path = tmp_path / "whatsapp_total_recall.db"
     with SearchIndex(db_path) as index:
         msgs = [
             make_msg(
@@ -448,7 +448,7 @@ def test_cli_summarize_chat(tmp_path: Path):
 
 
 def test_cli_summarize_thread(tmp_path: Path):
-    db_path = tmp_path / "total_recall.db"
+    db_path = tmp_path / "whatsapp_total_recall.db"
     with SearchIndex(db_path) as index:
         msgs = [
             make_msg(10, "chat2@g.us", "Alice", "Is the index ready?", 1700000000.0),
